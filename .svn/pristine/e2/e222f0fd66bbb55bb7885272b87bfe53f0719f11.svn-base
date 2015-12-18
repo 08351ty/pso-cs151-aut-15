@@ -1,0 +1,285 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require typed/2htdp/image)
+(require "../include/uchicago151.rkt")
+
+(: int-list-sum (-> (Listof Integer) Integer))
+;;Computes the sum of a list of integers
+(define (int-list-sum list)
+  (cond
+    [(empty? list) 0]
+    [(cons? list) (+ (first list) (int-list-sum (rest list)))]))
+(check-expect (int-list-sum (list 1 2 3 4 5)) 15)
+
+(: int-list-product (-> (Listof Integer) Integer))
+;;Compute the product of a list of integers
+(define (int-list-product list)
+  (cond
+    [(cons? list) (* (first list) (int-list-product (rest list)))]
+    [else 1]))
+(check-expect (int-list-product (list 1 2 3 4 5)) 120)
+
+(: evens (-> (Listof Integer) (Listof Integer)))
+;;Build a list of only the even numbers in the input list
+(define (evens list)
+  (cond
+    [(cons? list) (if (= (modulo (first list) 2) 0)
+                      (cons (first list) (evens (rest list)))
+                      (evens (rest list)))]
+    [else empty]))
+(check-expect (evens (list 1 2 3 4)) (list 2 4))
+
+(: red-circles (-> (Listof Integer) (Listof Image)))
+;;Produce a list of solid red circles of given radii
+(define (red-circles list)
+  (cond
+    [(cons? list) (if (< 0 (first list))
+                      (cons (circle (first list) "solid" "red") (red-circles (rest list)))
+                      (cons empty-image (red-circles (rest list))))]
+    [else empty]))
+(check-expect (red-circles (list 5 10))
+              (list (circle 5 "solid" "red")
+                    (circle 10 "solid" "red")))
+
+(: int-size (-> Integer Integer Integer))
+;;Determines how big the size of the integer is in terms of 10^x
+(define (int-size i p)
+  (cond
+    [(> i 0) (if (and (<= 1 (/ i p) 9))
+                 p
+                 (int-size i (* p 10)))]
+    [else (error "entered a negative number")]))
+(check-expect (int-size 4286 1) 1000)
+  
+(: int-to-list (-> Integer (Listof Integer)))
+;;Produces a list containing the digits of the integer
+(define (int-to-list i)
+  (cond
+    [(> i 0) (cons (quotient i (int-size i 1))
+                    (int-to-list (- i (* (int-size i 1) (quotient i (int-size i 1))))))]
+    [else empty]))
+(check-expect (int-to-list 4286) (list 4 2 8 6))
+
+(: explode-digits (-> Integer (Listof Integer)))
+;;Consumes an integer and produces a list of the digits in that integer in reverse
+(define (explode-digits i)
+  (reverse (int-to-list i)))
+(check-expect (explode-digits 4286) (list 6 8 2 4))
+
+(: implode-digits (-> (Listof Integer) Integer Integer))
+;;Consumes a list of digits and composes them together into the corresponding number in reverse order
+(define (implode-digits list int)
+  (cond
+    [(empty? list) 0]
+    [(cons? list) (+ (* (first list) int)
+                     (implode-digits (rest list)
+                               (* int 10)))]))
+(check-expect (implode-digits (list 4 2 8 6) 1) 6824)
+
+;;Defines the type of coin in value from Dollar to Penny
+(define-type Coin (U 'Dollar 'Quarter 'Dime 'Nickel 'Penny))
+
+(: num-quarters (-> (Listof Coin) Integer))
+;;Finds the number of quarters in a list of coins
+(define (num-quarters list)
+  (cond
+    [(cons? list) (if (symbol=? (first list) 'Quarter)
+                      (+ 1 (num-quarters (rest list)))
+                      (num-quarters (rest list)))]
+    [else 0]))
+(check-expect (num-quarters (list 'Quarter 'Dollar 'Quarter 'Quarter 'Dime 'Nickel)) 3)
+(check-expect (num-quarters (list 'Quarter 'Quarter 'Quarter 'Quarter 'Quarter 'Quarter)) 6)
+
+(: list-size (-> (Listof Coin) Integer))
+;;Finds the size of the list
+(define (list-size list)
+  (cond
+    [(empty? list) 0]
+    [(cons? list) (+ 1 (list-size (rest list)))]))
+(check-expect (list-size (list 'Quarter 'Dollar 'Quarter)) 3)
+
+(: num-dimes (-> (Listof Coin) Integer))
+;;Finds the number of dimes in a list of coins
+(define (num-dimes list)
+  (cond
+    [(cons? list) (if (symbol=? (first list) 'Dime)
+                      (+ 1 (num-dimes (rest list)))
+                      (num-dimes (rest list)))]
+    [else 0]))
+(check-expect (num-dimes (list 'Quarter 'Dollar 'Quarter 'Quarter 'Dime 'Nickel)) 1)
+(check-expect (num-dimes (list 'Quarter 'Quarter 'Quarter 'Quarter 'Quarter 'Quarter)) 0)
+
+(: pct-dimes (-> (Listof Coin) Exact-Rational))
+;;Returns the percentage of dimes in the list
+(define (pct-dimes list)
+  (* (/ (num-dimes list) (list-size list)) 100))
+(check-expect (pct-dimes (list 'Quarter 'Dime)) 50)
+(check-expect (pct-dimes (list 'Quarter 'Dime 'Dime 'Dime)) 75)
+(check-expect (pct-dimes (list 'Quarter 'Nickel)) 0)
+
+(: contains-dollar? (-> (Listof Coin) Boolean))
+;;Returns true if there are one or more dollar coins in the list
+(define (contains-dollar? list)
+  (cond
+    [(cons? list) (if (symbol=? (first list) 'Dollar) #t (contains-dollar? (rest list)))]
+    [else #f]))
+(check-expect (contains-dollar? (list 'Quarter 'Dime)) #f)
+(check-expect (contains-dollar? (list 'Quarter 'Dollar)) #t)
+
+(: coin-total (-> (Listof Coin) Integer))
+;;Returns the total value of the list of coins in pennies
+(define (coin-total list)
+  (cond
+    [(cons? list) (cond
+                    [(symbol=? (first list) 'Dollar) (+ 100 (coin-total (rest list)))]
+                    [(symbol=? (first list) 'Quarter) (+ 25 (coin-total (rest list)))]
+                    [(symbol=? (first list) 'Dime) (+ 10 (coin-total (rest list)))]
+                    [(symbol=? (first list) 'Nickel) (+ 5 (coin-total (rest list)))]
+                    [(symbol=? (first list) 'Penny) (+ 1 (coin-total (rest list)))])]
+    [else 0]))
+(check-expect (coin-total (list 'Quarter 'Dime)) 35)
+(check-expect (coin-total (list 'Dollar 'Dollar 'Dollar 'Dollar 'Dime 'Dime)) 420)
+
+(: change (-> Integer (Listof Coin)))
+;;Takes in an integer and returns a list of coins adding up to that number of cents
+(define (change i)
+  (cond
+    [(>= i 100) (cons 'Dollar (change (- i 100)))]
+    [(>= i 25) (cons 'Quarter (change (- i 25)))]
+    [(>= i 10) (cons 'Dime (change (- i 10)))]
+    [(>= i 5) (cons 'Nickel (change (- i 5)))]
+    [(>= i 1) (cons 'Penny (change (- i 1)))]
+    [else empty]))
+(check-expect (change 123) (list 'Dollar 'Dime 'Dime 'Penny 'Penny 'Penny))
+(check-expect (change 75) (list 'Quarter 'Quarter 'Quarter))
+
+(: show-coins (-> (Listof Coin) Image))
+;;Produces an image of the given coins in red circles according to their size
+;;Size: Dollar > Quarter > Nickel > Dime > Penny
+(define (show-coins list)
+  (cond
+    [(cons? list) (cond
+                    [(symbol=? (first list) 'Dollar)
+                     (beside (circle 50 "solid" "red")
+                             (show-coins (rest list)))]
+                    [(symbol=? (first list) 'Quarter)
+                     (beside (circle 40 "solid" "red")
+                             (show-coins (rest list)))]
+                    [(symbol=? (first list) 'Dime)
+                     (beside (circle 20 "solid" "red")
+                             (show-coins (rest list)))]
+                    [(symbol=? (first list) 'Nickel)
+                     (beside (circle 30 "solid" "red")
+                             (show-coins (rest list)))]
+                    [(symbol=? (first list) 'Penny)
+                     (beside (circle 10 "solid" "red")
+                             (show-coins (rest list)))]
+                    [else empty-image])]
+    [else empty-image]))
+(check-expect (show-coins (list 'Dollar 'Penny)) (beside (circle 50 "solid" "red")
+                                                         (circle 10 "solid" "red")))
+
+;;Defines a term of a polynomial with coefficient and exponent
+(define-struct Term
+  ([coeff : Real]
+   [exp   : Integer]))
+
+;;Defines type polynomial that is a list of terms
+(define-type Polynomial (Listof Term))
+
+;;Appends the term as a string in form ax^b
+(: term->string (-> Term String))
+(define (term->string term)
+  (string-append (number->string (Term-coeff term))
+                 "x^" (number->string (Term-exp term))))
+(check-expect (term->string (Term 3 2)) "3x^2")
+
+;;Appends the polynomial as a string
+(: polynomial->string (-> Polynomial String))
+(define (polynomial->string poly)
+  (cond
+    [(cons? poly) (string-append
+                   (term->string (first poly))
+                   (if (cons? (rest poly))
+                       (string-append " + " (polynomial->string (rest poly)))
+                       ""))]
+    [else ""]))
+(check-expect (polynomial->string (list (Term 3 2) (Term 2 1))) "3x^2 + 2x^1")
+(check-expect (polynomial->string (list (Term 4 7) (Term 3 2) (Term 2 1))) "4x^7 + 3x^2 + 2x^1")
+
+;;Finds the value of the polynomial at a specific x
+(: value-at (-> Polynomial Real Real))
+(define (value-at poly x)
+  (cond
+    [(cons? poly) (+ (* (Term-coeff (first poly)) (expt x (Term-exp (first poly)))) (value-at (rest poly) x))]
+    [else 0]))
+(check-expect (value-at (list (Term 3 2) (Term 2 1)) 4) 56)
+(check-expect (value-at (list (Term 4 7) (Term 3 2) (Term 2 1)) 1) 9)
+
+;;Finds the derivative of the polynomial
+(: derivative (-> Polynomial Polynomial))
+(define (derivative poly)
+  (cond
+    [(cons? poly) (cons (Term (* (Term-coeff (first poly))
+                                 (Term-exp (first poly)))
+                              (- (Term-exp (first poly)) 1))
+                        (derivative (rest poly)))]
+    [else empty]))
+(check-expect (derivative (list (Term 3 3) (Term 2 2))) (list (Term 9 2) (Term 4 1)))
+
+;;Finds the antiderivative of the polynomial
+(: antiderivative (-> Polynomial Polynomial))
+(define (antiderivative poly)
+  (cond
+    [(cons? poly) (cons (Term (/ (Term-coeff (first poly))
+                                        (+ (Term-exp (first poly)) 1))
+                              (+ (Term-exp (first poly)) 1))
+                        (antiderivative (rest poly)))]
+    [else empty]))
+(check-expect (antiderivative (list (Term 4 3) (Term 3 2))) (list (Term 1 4) (Term 1 3)))
+
+;;Creates a list of integers of exponents from a polynomial type
+(: poly-exp (-> Polynomial (Listof Integer)))
+(define (poly-exp poly)
+  (cond
+    [(cons? poly) (cons (Term-exp (first poly)) (poly-exp (rest poly)))]
+    [else empty]))
+(check-expect (poly-exp (list (Term 3 2) (Term 5 5) (Term 2 1))) (list 2 5 1))                                            
+
+;;Checks whether a given polynomial is strictly descending in power
+(: sorted-desc? (-> Polynomial Boolean))
+(define (sorted-desc? poly)
+  (cond
+    [(and (cons? poly) (cons? (rest poly))) (if (> (first (poly-exp poly)) (first (poly-exp (rest poly))))
+      #t #f)]
+    [else #f]))
+(check-expect (sorted-desc? (list (Term 8 9) (Term 7 7) (Term 3 2))) #t)
+(check-expect (sorted-desc? (list (Term 2 8) (Term 2 9) (Term 3 2))) #f)
+(check-expect (sorted-desc? (list (Term 3 2) (Term 2 1))) #t)
+(check-expect (sorted-desc? (list (Term 4 2) (Term 2 1) (Term 1 0))) #t)
+
+;;Adds two polynomials
+(: polynomial-add (-> Polynomial Polynomial Polynomial))
+(define (polynomial-add poly1 poly2)
+  (cond
+    [(and (cons? poly1) (cons? poly2))
+     (cond
+       [(= (Term-exp (first poly1)) (Term-exp (first poly2)))
+        (cons (Term (+ (Term-coeff (first poly1)) (Term-coeff (first poly2)))
+                    (Term-exp (first poly1)))
+              (polynomial-add (rest poly1) (rest poly2)))]
+       [(> (Term-exp (first poly1)) (Term-exp (first poly2)))
+        (cons (Term (Term-coeff (first poly1)) (Term-exp (first poly1)))
+              (polynomial-add (rest poly1) (rest poly2)))]
+       [(< (Term-exp (first poly1)) (Term-exp (first poly2)))
+        (cons (Term (Term-coeff (first poly2)) (Term-exp (first poly2)))
+              (polynomial-add (rest poly1) (rest poly2)))]
+       [else empty])]
+    [(and (cons? poly1) (empty? poly2)) poly1]
+    [(and (empty? poly1) (cons? poly2)) poly2]
+    [else empty]))
+  
+(check-expect (polynomial-add (list (Term 3 2) (Term 2 1)) (list (Term 4 2) (Term 2 1) (Term 1 0)))
+              (list (Term 7 2) (Term 4 1) (Term 1 0)))
+
+(test)

@@ -1,0 +1,796 @@
+#lang typed/racket
+(require "../include/uchicago151.rkt")
+(require typed/test-engine/racket-tests)
+(require typed/2htdp/image)
+(require typed/2htdp/universe)
+(require "projectAams.rkt")
+
+;;requires projectAams.rkt in same svn repo to be in the same folder.
+
+(define-struct Move
+  ([loc : Loc]
+   [q   : Quadrant]
+   [dir : Direction]))
+
+(define-type Human
+  (U String Symbol))
+
+(define-struct Bot
+  ([name : (U String Symbol)]
+   [mind : (Game (Listof Loc) -> (Optional Move))]))
+
+(define-struct World
+  ([game : Game]
+   [player1 : (U Human Bot)]
+   [player2 : (U Human Bot)]
+   [bots-turn? : Boolean]))
+
+;;determines whether player is a bot
+(: is-bot? : (U Human Bot) -> Boolean)
+(define (is-bot? player)
+  (cond
+    [(or (symbol? player) (string? player)) #f]
+    [else #t]))
+(check-expect (is-bot? "adam") #f)
+(check-expect (is-bot? (Bot "droid" first-available)) #t)
+
+;;initializes world
+(: pentago : (U Human Bot) (U Human Bot) -> World)
+(define (pentago p1 p2)
+  (cond
+    [(or (symbol? p1) (string? p1)) (World (Game (Board (list 'none 'none 'none
+                            'none 'none 'none
+                            'none 'none 'none)
+                      (list 'none 'none 'none
+                            'none 'none 'none
+                            'none 'none 'none)
+                      (list 'none 'none 'none
+                            'none 'none 'none
+                            'none 'none 'none)
+                      (list 'none 'none 'none
+                            'none 'none 'none
+                            'none 'none 'none))
+               'white
+               'place)
+         p1
+         p2
+         #f)]
+    [else (keypress 
+           (handle-mouse (World (Game (Board (list 'none 'none 'none
+                                                   'none 'none 'none
+                                                   'none 'none 'none)
+                                             (list 'none 'none 'none
+                                                   'none 'none 'none
+                                                   'none 'none 'none)
+                                             (list 'none 'none 'none
+                                                   'none 'none 'none
+                                                   'none 'none 'none)
+                                             (list 'none 'none 'none
+                                                   'none 'none 'none
+                                                   'none 'none 'none))
+                                      'white
+                                      'place)
+                                p1
+                                p2
+                                #t)
+                         10
+                         10
+                         "button-down")
+  "right")]))
+(check-expect (pentago "adam" "bob") (World
+                                      (Game
+                                       (Board
+                                        '(none none none none none none none none none)
+                                        '(none none none none none none none none none)
+                                        '(none none none none none none none none none)
+                                        '(none none none none none none none none none))
+                                       'white
+                                       'place)
+                                      "adam"
+                                      "bob"
+                                      #f))
+
+;;draws environment
+(: draw : World -> Image)
+(define (draw w)
+  (if (end-game w)
+      (overlay
+       (text (match (outcome (World-game w))
+               ['black "black wins!"]
+               ['white "white wins!"]
+               ['tie "it's a tie!"]) 40 "black")
+       (rectangle 300 200 "solid" "maroon")
+       (overlay/align "left" "top"
+                      (match selected-quadrant
+                        ['NW (square 250 "outline" "cyan")]
+                        ['NE (beside
+                              (square 250 "outline" (color 128 128 128 0))
+                              (square 250 "outline" "cyan"))]
+                        ['SW (above
+                              (square 250 "outline" (color 128 128 128 0))
+                              (square 250 "outline" "cyan"))]
+                        ['SE (above
+                              (rectangle 500 250 "outline" (color 128 128 128 0))
+                              (beside
+                               (square 250 "outline" (color 128 128 128 0))
+                               (square 250 "outline" "cyan")))])             
+                      (game-image (World-game w) 500)))
+      (overlay/align "left" "top" (match selected-quadrant
+                                    ['NW (square 250 "outline" "cyan")]
+                                    ['NE (beside (square 250 "outline" (color 128 128 128 0))
+                                                 (square 250 "outline" "cyan"))]
+                                    ['SW (above (square 250 "outline" (color 128 128 128 0))
+                                                (square 250 "outline" "cyan"))]
+                                    ['SE (above (rectangle 500 250 "outline" (color 128 128 128 0))
+                                                (beside (square 250 "outline" (color 128 128 128 0))
+                                                        (square 250 "outline" "cyan")))])
+                     
+                     (game-image (World-game w) 500))))
+
+;;Handles mouse click to place marble
+(: handle-mouse : World Integer Integer Mouse-Event -> World)
+(define (handle-mouse w x y e)
+  (match e
+    ["button-down" (if (symbol=? (Game-next-action (World-game w)) 'place)
+                       (cond
+                         [(and (< x 80) (< y 80))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 0 0))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 80 x 160) (< y 80))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 0 1))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 160 x 240) (< y 80))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 0 2))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 260 x 340) (< y 80))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 0 3))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 340 x 420) (< y 80))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 0 4))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 420 x 500) (< y 80))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 0 5))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< x 80) (< 80 y 160))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 1 0))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 80 x 160) (< 80 y 160) )
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 1 1))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 160 x 240) (< 80 y 160))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 1 2))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 260 x 340) (< 80 y 160))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 1 3))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 340 x 420) (< 80 y 160))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 1 4))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 420 x 500) (< 80 y 160))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 1 5))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< x 80) (< 160 y 240))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 2 0))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 80 x 160) (< 160 y 240))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 2 1))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 160 x 240) (< 160 y 240))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 2 2))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 260 x 340) (< 160 y 240))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 2 3))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 340 x 420) (< 160 y 240))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 2 4))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 420 x 500) (< 160 y 240))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 2 5))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< x 80) (< 260 y 340))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 3 0))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 80 x 160) (< 260 y 340))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 3 1))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 160 x 240) (< 260 y 340))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 3 2))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 260 x 340) (< 260 y 340))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 3 3))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 340 x 420) (< 260 y 340))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 3 4))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 420 x 500) (< 260 y 340))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 3 5))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< x 80) (< 340 y 420))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 4 0))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 80 x 160) (< 340 y 420))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 4 1))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 160 x 240) (< 340 y 420))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 4 2))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 260 x 340) (< 340 y 420))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 4 3))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 340 x 420) (< 340 y 420))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 4 4))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 420 x 500) (< 340 y 420))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 4 5))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< x 80) (< 420 y 500))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 5 0))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 80 x 160) (< 420 y 500))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 5 1))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 160 x 240) (< 420 y 500))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 5 2))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 260 x 340) (< 420 y 500))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 5 3))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 340 x 420) (< 420 y 500))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 5 4))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [(and (< 420 x 500) (< 420 y 500))
+                          (World (place-marble (World-game w)
+                                               (Game-next-player (World-game w))
+                                               (Loc 5 5))
+                                 (World-player1 w)
+                                 (World-player2 w)
+                                 (World-bots-turn? w))]
+                         [else w])
+                       (cond
+                         [(and (< x 250) (< y 250)) (set! selected-quadrant 'NW) w]
+                         [(and (< 250 x 500) (< y 250)) (set! selected-quadrant 'NE) w]
+                         [(and (< x 250) (< 250 y 500)) (set! selected-quadrant 'SW) w]
+                         [(and (< 250 x 500) (< 250 y 500)) (set! selected-quadrant 'SE) w]
+                         [else w]))]
+    [_ w]))
+(check-expect (handle-mouse (World (Game (Board (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none))
+                                        'black
+                                        'place)
+                            "adam"
+                            "jack"
+                            #f)
+                            450
+                            450
+                            "button-down")
+              (World (Game (Board (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none (Some 'black)))
+                                        'black
+                                        'twist)
+                            "adam"
+                            "jack"
+                            #f))
+
+;;selected quadrant to twist
+(define selected-quadrant 'NW)
+
+;;determines whether opponent is human or bot
+(: player-color : World -> (U Human Bot))
+(define (player-color w)
+  (match (Game-next-player (World-game w))
+    ['white (World-player2 w)]
+    ['black (World-player1 w)]
+    [else (error "neither black nor white")]))
+(check-expect (player-color (World (Game (Board (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none (Some 'black)))
+                                        'black
+                                        'twist)
+                            "adam"
+                            "jack"
+                            #f))
+              "jack")
+
+;;determines whether self is human or bot
+(: self-color : World -> (U Human Bot))
+(define (self-color w)
+  (match (Game-next-player (World-game w))
+    ['white (World-player1 w)]
+    ['black (World-player2 w)]
+    [else (error "neither black nor white")]))
+(check-expect (self-color (World (Game (Board (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none (Some 'black)))
+                                        'black
+                                        'twist)
+                            "adam"
+                            "jack"
+                            #f))
+              "adam")
+
+;;rotates selected quadrant clockwise or counterclockwise
+(: keypress : World String -> World)
+(define (keypress w s)
+  (match (Game-next-action (World-game w))
+    ['twist (match s
+              ["left" (match selected-quadrant
+                        ['NW (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'NW
+                                                                     'counterclockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'NW
+                                                             'counterclockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))]
+                        ['NE (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'NE
+                                                                     'counterclockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'NE
+                                                             'counterclockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))]
+                        ['SW (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'SW
+                                                                     'counterclockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'SW
+                                                             'counterclockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))]
+                        ['SE (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'SE
+                                                                     'counterclockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'SE
+                                                             'counterclockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))])]
+              ["right" (match selected-quadrant
+                         ['NW (cond
+                                [(and (is-bot? (player-color w)) (is-bot? (self-color w)))
+                                 (continuous-bot-move (World (twist-quadrant (World-game w)
+                                                                     'NW
+                                                                     'clockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))]
+                                [(is-bot? (player-color w))
+                          ;;(if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'NW
+                                                                     'clockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))]
+                                [else (World (twist-quadrant (World-game w)
+                                                             'NW
+                                                             'clockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w)))])]
+                        ['NE (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'NE
+                                                                     'clockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'NE
+                                                             'clockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))]
+                         ['SW (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'SW
+                                                                     'clockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'SW
+                                                             'clockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))]
+                         ['SE (if (is-bot? (player-color w))
+                                (bot-move (World (twist-quadrant (World-game w)
+                                                                     'SE
+                                                                     'clockwise)
+                                                     (World-player1 w)
+                                                     (World-player2 w)
+                                                     (is-bot? (player-color w))))
+                                (World (twist-quadrant (World-game w)
+                                                             'SE
+                                                             'clockwise)
+                                             (World-player1 w)
+                                             (World-player2 w)
+                                             (is-bot? (player-color w))))])]
+              [_ w])]
+    [_ w]))
+(check-expect (keypress (World (Game (Board (list (Some 'black) 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none (Some 'black)))
+                                        'black
+                                        'twist)
+                            "adam"
+                            "jack"
+                            #f)
+                        "right")
+              (World (Game (Board (list 'none 'none (Some 'black)
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none 'none)
+                                               (list 'none 'none 'none
+                                                     'none 'none 'none
+                                                     'none 'none (Some 'black)))
+                                        'white
+                                        'place)
+                            "adam"
+                            "jack"
+                            #f))
+              
+;;if both players are bots, recursively apply bot moves
+(: continuous-bot-move : World -> World)
+(define (continuous-bot-move w)
+  (if (or (full? (Game-board (World-game w))) (end-game w))
+      w
+      (continuous-bot-move (bot-move w))))
+
+;;applies bot move
+;;1.) place marble at first available square
+;;2.) twist NW quadrant clockwise
+(: bot-move : World -> World)
+(define (bot-move w)
+  (apply-twist (apply-move (first-available (World-game w) loc-list) w)))
+
+;;determines if game has ended
+(: end-game : World -> Boolean)
+(define (end-game w)
+  (game-over? (World-game w)))
+(check-expect (end-game 
+(World
+ (Game
+  (Board
+   (list
+    (Some 'black)
+    (Some 'black)
+    (Some 'white)
+    (Some 'white)
+    (Some 'white)
+    (Some 'white)
+    (Some 'white)
+    (Some 'black)
+    (Some 'black))
+   (list
+    (Some 'black)
+    (Some 'white)
+    (Some 'black)
+    (Some 'black)
+    (Some 'white)
+    (Some 'black)
+    (Some 'white)
+    (Some 'black)
+    (Some 'white))
+   (list
+    (Some 'black)
+    (Some 'white)
+    (Some 'black)
+    (Some 'black)
+    (Some 'white)
+    (Some 'black)
+    (Some 'black)
+    (Some 'white)
+    (Some 'black))
+   (list
+    (Some 'white)
+    (Some 'black)
+    (Some 'white)
+    (Some 'white)
+    (Some 'black)
+    (Some 'white)
+    (Some 'white)
+    (Some 'black)
+    (Some 'white)))
+  'black
+  'place)
+ "dom"
+ "mazetti"
+ #t)) #t)
+
+;;list of locations
+(: loc-list : (Listof Loc))
+(define loc-list
+  (list (Loc 0 0) (Loc 0 1) (Loc 0 2) (Loc 0 3) (Loc 0 4) (Loc 0 5)
+        (Loc 1 0) (Loc 1 1) (Loc 1 2) (Loc 1 3) (Loc 1 4) (Loc 1 5)
+        (Loc 2 0) (Loc 2 1) (Loc 2 2) (Loc 2 3) (Loc 2 4) (Loc 2 5)
+        (Loc 3 0) (Loc 3 1) (Loc 3 2) (Loc 3 3) (Loc 3 4) (Loc 3 5)
+        (Loc 4 0) (Loc 4 1) (Loc 4 2) (Loc 4 3) (Loc 4 4) (Loc 4 5)
+        (Loc 5 0) (Loc 5 1) (Loc 5 2) (Loc 5 3) (Loc 5 4) (Loc 5 5)))
+
+;;determines if the marble that is placed is okay
+(: place-marble-ok? : Game Loc -> Boolean)
+(define (place-marble-ok? g l)
+  (match (board-ref (Game-board g) l)
+    ['none #t]
+    [_ #f]))
+(check-expect (place-marble-ok? (Game
+             (quick-board 'w---w---w '--b-b-b-- '--b-b---- 'w---w----)
+             'white
+             'twist)
+                                (Loc 0 1))
+              #t)
+(check-expect (place-marble-ok? (Game
+             (quick-board 'w---w---w '--b-b-b-- '--b-b---- 'w---w----)
+             'white
+             'twist)
+                                (Loc 0 0))
+              #f)
+
+;;finds first available marble to place and creates move
+;;which has Loc of available placement, 'NW quadrant and 'clockwise
+(: first-available : Game (Listof Loc) -> (Optional Move))
+(define (first-available g list)
+  (match list
+    ['() (error "empty list")]
+    [(cons hd '()) (if (place-marble-ok? g hd)
+                       (Some (Move hd 'NW 'clockwise))
+                       'none)]
+    [(cons hd tl) (if (place-marble-ok? g hd)
+                      (Some (Move hd 'NW 'clockwise))
+                      (first-available g tl))]))
+(check-expect (first-available (Game
+             (quick-board 'w---w---w '--b-b-b-- '--b-b---- 'w---w----)
+             'white
+             'twist)
+                                loc-list)
+              (Some (Move (Loc 0 1) 'NW 'clockwise)))
+
+
+;;place marble at earliest possible Loc
+(: apply-move : (Optional Move) World -> World)
+(define (apply-move m w)
+  (match m
+    ['none w]
+    [(Some (Move l q dir)) (World (place-marble (World-game w)
+                                                (Game-next-player (World-game w))
+                                                l)
+                                  (World-player1 w)
+                                  (World-player2 w)
+                                  (World-bots-turn? w))]))
+
+;;twists NW quadrant clockwise
+(: apply-twist : World -> World)
+(define (apply-twist w)
+  (World (twist-quadrant (World-game w)
+                         'NW
+                         'clockwise)
+         (World-player1 w)
+         (World-player2 w)
+         (World-bots-turn? w)))
+
+
+(test)
+
+;;Set human with '(name) or "(name)"
+;;Set bot with (Bot "(bot-name)" first-available) or (Bot 'bot-name first-available)
+(big-bang (pentago (Bot "droid" first-available) "adam") : World
+          [to-draw draw]
+          [on-mouse handle-mouse]
+          [on-key keypress]
+          ;;[on-tick handle-tick]
+          [stop-when end-game])

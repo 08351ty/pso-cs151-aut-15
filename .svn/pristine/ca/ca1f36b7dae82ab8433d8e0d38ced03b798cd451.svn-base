@@ -1,0 +1,102 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require "../include/uchicago151.rkt")
+(require typed/2htdp/image)
+(require typed/2htdp/universe)
+
+(define-struct Ball
+  ([y : Real]
+   [v : Real]
+   [e : Real]
+   [r : Real]
+   [c : Image-Color]))
+
+(define-struct World
+  ([balls : (Listof Ball)]
+   [counter : Integer]))
+
+(: draw-ball : Ball -> Image)
+(define (draw-ball b)
+  (cond
+    [(and (> (Ball-r b) 0) (Ball? b) (> (Ball-y b) 0))
+     (above (circle (Ball-r b) "solid" (Ball-c b))
+                    (rectangle (* 2 (Ball-r b)) (Ball-y b) "solid" "ivory"))]
+    [else empty-image]))
+
+(: draw-balls : (Listof Ball) -> Image)
+(define (draw-balls list)
+  (cond
+    [(cons? list) (beside/align "bottom" (draw-ball (first list))
+                                (rectangle 50 600 "solid" "ivory")
+                  (draw-balls (rest list)))]
+    ['() empty-image]))
+
+(: draw : World -> Image)
+(define (draw w)
+  (overlay/align "middle" "bottom" (draw-balls (World-balls w))
+           (overlay/align "right" "bottom"
+                          (text (string-append "Time: " (number->string (World-counter w))) 16 "black")
+                          (square 600 "solid" "ivory"))))
+(define g -9.8)
+
+(: change-yv : Ball -> Ball)
+(define (change-yv b)
+  (match b
+    [(Ball y v e r c) (cond
+                        [(and (> y 1) (> (+ (Ball-y b) (Ball-v b)) 1))
+                         (Ball (+ (Ball-y b) (Ball-v b))
+                               (+ (Ball-v b) g)
+                               e
+                               r
+                               c)]
+                        [(and (> y 1) (<= (+ (Ball-y b) (Ball-v b)) 1))
+                         (Ball 1 (- (Ball-v b) g) e r c)]
+                        [(= y 1) (Ball
+                                  (max 1.0 (- (- (* e v)) 0.5))
+                                  (max 0.0 (- (- (* e v)) 0.5))
+                                  e
+                                  r
+                                  c)]
+                        [else b])]
+    [else b]))
+
+(: change-list : (Listof Ball) -> (Listof Ball))
+(define (change-list list)
+  (cond
+    [(cons? list) (cons (change-yv (first list))
+                        (change-list (rest list)))]
+    [else list]))
+
+(: tick : World -> World)
+(define (tick w)
+  (match w
+    [(World b c) (World (change-list b) (add1 c))]
+    [else w]))
+
+(: get-all-v : (Listof Ball) -> (Listof Real))
+(define (get-all-v list)
+  (cond
+    [(cons? list) (cons (abs (Ball-v (first list))) (get-all-v (rest list)))]
+    ['()'()]))
+
+(: get-all-y : (Listof Ball) -> (Listof Real))
+(define (get-all-y list)
+  (cond
+    [(cons? list) (cons (Ball-y (first list)) (get-all-y (rest list)))]
+    ['()'()]))
+
+(: finished? : World -> Boolean)
+(define (finished? w)
+  (if (and (= (apply max (get-all-v (World-balls w))) 0)
+           (= (apply max (get-all-y (World-balls w))) 1))
+      #t
+      #f))
+
+(big-bang (World (list (Ball 500 0 0.8 50  "slategray")
+                       (Ball 400 0 0.7 25  "hotpink")
+                       (Ball 300 10 0.1 15 "aqua")
+                       (Ball 200 25 0.4 20 "wheat")) 0) : World
+          [to-draw draw]
+          [on-tick tick]
+          [stop-when finished?])
+          

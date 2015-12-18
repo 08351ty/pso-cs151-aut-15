@@ -1,0 +1,165 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require "../include/uchicago151.rkt")
+(require typed/2htdp/image)
+
+(define-struct Interval
+  ([min : Real]
+   [max : Real]))
+
+;;draws positive y position for a given x
+(: draw-positive-y : Real -> Image)
+(define (draw-positive-y h)
+  (cond
+    [(= h 0) (square 1 "solid" "blue")]
+    [(> h 0) (above (square 1 "solid" "blue")
+                            (rectangle 1 h "outline" (color 128 128 128 0)))]
+    [else (square 1 "solid" (color 128 128 128 0))]))
+
+;;draws negative y position for a given x
+(: draw-negative-y : Real -> Image)
+(define (draw-negative-y h)
+  (cond
+    [(< h 0) (above (rectangle 1 (- h) "outline" (color 128 128 128 0))
+                    (square 1 "solid" "blue"))]
+    [else (square 1 "solid" (color 128 128 128 0))]))
+
+;;draws list of positive x values
+(: draw-positives : (Real -> Real) Interval Interval Real Real Real -> Image)
+(define (draw-positives f xe ye pos xp yp)
+  (local
+    {(define width (- (Interval-max xe) (Interval-min xe)))
+     (define height (- (Interval-max ye) (Interval-min ye)))}
+    (cond
+      [(and (> width 0)
+            (> height 0)
+            (> yp 0)
+            (<= (Interval-min xe) pos (Interval-max xe)))
+       (beside/align "bottom" (if (and (<= (Interval-min ye) (f pos) (Interval-max ye))
+                                       (<= (Interval-min xe) pos (Interval-max xe)))
+                   (draw-positive-y (/ (f pos) yp))
+                   (rectangle 1 (/ (/ height 2) yp) "solid" (color 128 128 128 0)))
+               (cond
+                 [(and (<= pos (Interval-max xe))
+                       (<= (f pos) (Interval-max ye)))
+                   (draw-positives f xe ye (+ pos (/ xp 1)) xp yp)]
+                 [else empty-image]))]
+[else empty-image])))
+
+;;draws list of negative x values
+(: draw-negatives : (Real -> Real) Interval Interval Real Real Real -> Image)
+(define (draw-negatives f xe ye pos xp yp)
+  (local
+    {(define width (- (Interval-max xe) (Interval-min xe)))
+     (define height (- (Interval-max ye) (Interval-min ye)))}
+    (cond
+      [(and (> width 0)
+            (> height 0)
+            (> yp 0)
+            (<= (Interval-min xe) pos (Interval-max xe)))
+       (beside/align "top" (if (<= (Interval-min ye) (f pos) (Interval-max ye))
+                   (draw-negative-y (/ (f pos) yp))
+                   (rectangle 1 (/ (/ height 2) yp) "solid" (color 128 128 128 0)))
+               (cond
+                 [(and (<= pos (Interval-max xe))
+                       (<= (f pos) (Interval-max ye)))
+                   (draw-negatives f xe ye (+ pos (/ xp 1)) xp yp)]
+                 [else empty-image]))]
+[else empty-image])))
+
+;;draws function
+(: draw-line : (Real -> Real) Interval Interval Real Real Real -> Image)
+(define (draw-line f xe ye pos xp yp)
+  (local
+    {(define width (- (Interval-max xe) (Interval-min xe)))
+     (define height (- (Interval-max ye) (Interval-min ye)))}
+    (cond
+      [(and (> width 0)
+            (> height 0)
+            (<= (Interval-min xe) pos (Interval-max xe)))
+       (above (draw-positives f xe ye pos xp yp)
+              (draw-negatives f xe ye pos xp yp))]
+      [else empty-image])))
+
+;;identity function
+(: identity : Real -> Real)
+(define (identity x)
+   x)
+
+;;plots function on graph
+(: plot : (Real -> Real) Interval Interval Real Real -> Image)
+(define (plot f xe ye xp yp)
+  (local
+    {(define width (- (Interval-max xe) (Interval-min xe)))
+     (define height (- (Interval-max ye) (Interval-min ye)))}
+    (cond
+      [(and (> width 0)
+            (> height 0)
+            (> xp 0)
+            (> yp 0)) (overlay
+                       (draw-line f xe ye (Interval-min xe) xp yp)
+                       (rectangle (/ width xp) 1 "solid" "black")
+                       (rectangle 1 (/ height yp) "solid" "black")
+                       (rectangle (/ width xp) (/ height yp) "solid" "aliceblue"))]
+      [else empty-image])))
+
+;;--------------------------------------------------
+;;Part 2
+
+;;adds two functions together, producing new function
+(: add-function : (Real -> Real) (Real -> Real) -> (Real -> Real))
+(define (add-function f1 f2)
+  (λ ([x : Real]) (+ (f1 x) (f2 x))))
+(check-expect ((add-function sqr identity) 5) 30)
+
+;;constant function for add
+(: add-null-function : Real -> Real)
+(define (add-null-function x)
+  0)
+
+;;adds list of functions together, producing new function
+(: f+ : (Listof (Real -> Real)) -> (Real -> Real))
+(define (f+ list)
+  (match list
+    [(cons hd tl) (add-function hd (f+ tl))]
+    [else add-null-function]))
+(check-expect ((f+ (list sqr identity)) 4) 20)
+(check-expect ((f+ (list add1 sub1 sqr)) 10) 120)
+
+;;multiplies two functions together, producing new function
+(: multiply-function : (Real -> Real) (Real -> Real) -> (Real -> Real))
+(define (multiply-function f1 f2)
+  (λ ([x : Real]) (* (f1 x) (f2 x))))
+(check-expect ((multiply-function sqr identity) 4) 64)
+
+;;constant function for multiplication
+(: multiply-null-function : Real -> Real)
+(define (multiply-null-function x)
+  1)
+
+;;multiplies list of functions together, producing new function
+(: f* : (Listof (Real -> Real)) -> (Real -> Real))
+(define (f* list)
+  (match list
+    [(cons hd tl) (multiply-function hd (f* tl))]
+    [else multiply-null-function]))
+(check-expect ((f* (list sqr identity)) 4) 64)
+(check-expect ((f* (list add1 sub1 sqr)) 10) 9900)
+
+;;finds max of two functions, producing new function
+(: max-function : (Real -> Real) (Real -> Real) -> (Real -> Real))
+(define (max-function f1 f2)
+  (λ ([x : Real]) (max (f1 x) (f2 x))))
+(check-expect ((max-function sqr identity) 4) 16)
+
+;;finds max of a list of functions, producing new function
+(: fmax : (Listof (Real -> Real)) -> (Real -> Real))
+(define (fmax list)
+  (match list
+    ['() (error "invalid list")]
+    [(cons hd '()) hd]
+    [(cons hd tl) (max-function hd (fmax tl))]))
+(check-expect ((fmax (list sqr identity)) 4) 16)
+(check-expect ((fmax (list add1 sub1 sqr)) 10) 100)
+
+(test)

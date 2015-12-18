@@ -1,0 +1,363 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require "../include/uchicago151.rkt")
+
+(define-type (Optional a)
+  (U 'none (Some a)))
+
+(define-struct (Some a)
+  ([value : a]))
+
+(define-struct (TwoLists a)
+  ([list1 : (Listof a)]
+   [list2 : (Listof a)]))
+
+(define-type (BSTData a)
+  (U 'empty (BSTNode a)))
+                 
+(define-struct (BSTNode a)
+  ([root : a]
+   [lsub : (BSTData a)]
+   [rsub : (BSTData a)]))
+
+(define-struct (BST a)
+  ([lt   : (a a -> Boolean)]
+   [eq   : (a a -> Boolean)]
+   [data : (BSTData a)]))
+
+(: BST-singleton : All (a) (a a -> Boolean) (a a -> Boolean) a -> (BST a))
+;; build a singleton BST given a less than function, an equals function, 
+;;   and exactly one item
+(define (BST-singleton f g x)
+  (BST f g (BSTNode x 'empty 'empty)))
+(check-expect (BST-data (BST-singleton < = 3)) (BSTNode 3 'empty 'empty))
+
+(: BST-max       : All (a) (BST a) -> (Optional a))
+;; return Some max item in the tree, or 'none if the tree is empty
+(define (BST-max tree)
+  (local
+    {(define lt? (BST-lt tree))}
+    (match (BST-data tree)
+      [(BSTNode root left right)
+       (match* ((BSTNode-lsub (BST-data tree)) (BSTNode-rsub (BST-data tree)))
+         [('empty 'empty) (Some root)]
+         [((BSTNode x l r) 'empty) (if (lt? (BSTNode-root (BST-data tree)) x)
+                                       (BST-max (BST (BST-lt tree)
+                                                     (BST-eq tree)
+                                                     (BSTNode x l r)))
+                                       (Some root))]
+         [('empty (BSTNode x l r)) (if (lt? (BSTNode-root (BST-data tree)) x)
+                                       (BST-max (BST (BST-lt tree)
+                                                     (BST-eq tree)
+                                                     (BSTNode x l r)))
+                                       (Some root))]
+         [((BSTNode x1 l1 r1) (BSTNode x2 l2 r2))
+          (cond
+            [(lt? (BSTNode-root (BST-data tree)) x1)
+             (BST-max (BST (BST-lt tree)
+                           (BST-eq tree)
+                           (BSTNode x1 l1 r1)))]
+            [(lt? (BSTNode-root (BST-data tree)) x2)
+             (BST-max (BST (BST-lt tree)
+                           (BST-eq tree)
+                           (BSTNode x2 l2 r2)))]
+            [else (Some root)])])]
+      [else 'none])))
+(check-expect (BST-max (BST < = (BSTNode 3
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty))) (Some 6))
+(check-expect (BST-max (BST > = (BSTNode 3
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty))) (Some 3))
+
+(: BST-insert    : All (a) a (BST a) -> (BST a))
+;; insert the item into the BST
+;; NOTE: if the item is already present, do not insert it
+(define (BST-insert x tree)
+  (match (BST-data tree)
+      [(BSTNode root left right)
+       (BST (BST-lt tree) (BST-eq tree)
+            (match* (left right)
+              [('empty 'empty)
+               (cond
+                 [((BST-lt tree) x root)
+                  (BSTNode root (BSTNode x 'empty 'empty) 'empty)]
+                 [((BST-eq tree) x (BSTNode-root (BST-data tree)))
+                  (BSTNode root 'empty 'empty)]
+                 [else
+                  (BSTNode root 'empty (BSTNode x 'empty 'empty))])]
+              [('empty _)
+               (cond
+                 [((BST-lt tree) x (BSTNode-root (BST-data tree)))
+                  (BSTNode root (BSTNode x 'empty 'empty) right)]
+                 [((BST-eq tree) x (BSTNode-root (BST-data tree)))
+                  (BSTNode root 'empty right)]
+                 [else
+                  (BST-data (BST-insert
+                             x
+                             (BST (BST-lt tree) (BST-eq tree) right)))])]
+              [(_ 'empty)
+               (cond
+                 [((BST-lt tree) x (BSTNode-root (BST-data tree)))
+                  (BST-data (BST-insert
+                             x
+                             (BST (BST-lt tree) (BST-eq tree) left)))]
+                 [((BST-eq tree) x (BSTNode-root (BST-data tree)))
+                  (BSTNode root left 'empty)]
+                 [else (BSTNode root left (BSTNode x 'empty 'empty))])]
+              [(_ _)
+               (BST-data (BST-insert
+                          x
+                          (BST (BST-lt tree) (BST-eq tree) left)))
+               (BST-data (BST-insert
+                          x
+                          (BST (BST-lt tree) (BST-eq tree) right)))]))]
+    [else (error "empty tree")]))
+(check-expect (BST-data (BST-insert
+                         3
+                         (BST < =
+                              (BSTNode 4
+                                       'empty
+                                       (BSTNode 5 'empty 'empty)))))
+              (BSTNode 4
+                       (BSTNode 3 'empty 'empty)
+                       (BSTNode 5 'empty 'empty)))
+                                                          
+                   
+
+(: BST-contains? : All (a) a (BST a) -> Boolean)
+;; search for the item in the tree
+(define (BST-contains? x tree)
+  (cond
+    [(BSTNode? (BST-data tree))
+     (cond
+       [((BST-lt tree) x (BSTNode-root (BST-data tree)))
+        (BST-contains? x (BST (BST-lt tree)
+                              (BST-eq tree)
+                              (BSTNode-lsub (BST-data tree))))]
+       [((BST-eq tree) x (BSTNode-root (BST-data tree)))
+        #t]
+       [else (BST-contains? x (BST (BST-lt tree)
+                                   (BST-eq tree)
+                                   (BSTNode-rsub (BST-data tree))))])]
+    [else #f]))
+(check-expect (BST-contains? 10 (BST < = (BSTNode 3
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty))) #f)
+(check-expect (BST-contains? 3 (BST < = (BSTNode 3
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty))) #t)
+
+(: smush : All (a) (BSTData a) -> (Listof a))
+(define (smush data)
+  (match data
+    ['empty '()]
+    [(BSTNode x l r) (append (smush l) (cons x (smush r)))]))
+                                  
+(: BST-inorder   : All (a) (BST a) -> (Listof a))
+;; return the list of items in the BST in order from left to right
+(define (BST-inorder tree)
+  (smush (BST-data tree)))
+(check-expect (BST-inorder (BST < = (BSTNode 7
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty)))
+              (list 4 6 7))
+
+(: BST-path-to   : All (a) a (BST a) -> (Listof a))
+; return the path to the item, starting from the root, 
+;   or the empty list if the item is not in the tree
+(define (BST-path-to x tree)
+  (if (BST-contains? x tree)
+      (match (BST-data tree)
+        ['empty '()]
+        [(BSTNode root left right)
+         (cons root
+               (cond
+                 [((BST-lt tree) root x) (BST-path-to x (BST (BST-lt tree)
+                                                             (BST-eq tree)
+                                                             right))]
+                 [((BST-eq tree) root x) '()]
+                 [else (BST-path-to x (BST (BST-lt tree)
+                                           (BST-eq tree)
+                                           left))]))])      
+      '()))
+(check-expect (BST-path-to 4 (BST < = (BSTNode 7
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty)))
+              (list 7 6 4))
+(check-expect (BST-path-to 7 (BST < = (BSTNode 7
+                               (BSTNode 6
+                                        (BSTNode 4 'empty 'empty)
+                                        'empty)
+                               'empty)))
+              (list 7))
+
+(define first-part-list '())
+(: cut : All (a) (Listof a) Integer -> (TwoLists a))
+;; For the argument list and the given number n, return a pair of
+;;   lists with n in the first list, and the rest of the items in 
+;;   in the second. Think of this function as both taking and
+;;   dropping n items.
+(define (cut list x)
+  (cond
+    [(and (<= x 0) (empty? list)) (TwoLists '() '())]
+    [(and (< x 0) (cons? list)) (TwoLists '() '())]
+    [(and (positive? x) (empty? list)) (error "empty list")]
+    [(and (>= x 0) (cons? list))
+     (if (> x 0)
+         (TwoLists (cons (first list)
+                         (TwoLists-list1 (cut (rest list) (sub1 x))))
+                   (TwoLists-list2 (cut (rest list) (sub1 x))))
+         (TwoLists (TwoLists-list1 (cut (rest list) (sub1 x)))
+                   (cons (first list)
+                         (TwoLists-list2 (cut (rest list) x)))))]
+    [else (error "negative number")]))
+(check-expect (cut (list 1 2 3 4 5) 3)
+              (TwoLists (list 1 2 3) (list 4 5)))
+(check-expect (cut (list 1 2 3 4 5 6 7 8 9) 5)
+              (TwoLists (list 1 2 3 4 5) (list 6 7 8 9)))
+
+(: split : All (a) (a -> Boolean) (Listof a) -> (TwoLists a))
+;; This function should consume a test and a list, and produce
+;;   a pair of lists such that the first of the pair includes
+;;   all items that pass the test, and the second all those that
+;;   do not pass the test.
+(define (split f list)
+  (cond
+    [(empty? list) (TwoLists '() '())]
+    [else (if (f (first list))
+              (TwoLists (cons (first list) (TwoLists-list1 (split f (rest list))))
+                        (TwoLists-list2 (split f (rest list))))
+              (TwoLists (TwoLists-list1 (split f (rest list)))
+                        (cons (first list) (TwoLists-list2 (split f (rest list))))))]))
+(check-expect (split positive? (list 1 2 3 -2 1 3 -4 -6))
+              (TwoLists (list 1 2 3 1 3) (list -2 -4 -6)))
+(check-expect (split zero? (list 1 2 3 -2 1 3 -4 -6))
+              (TwoLists '() (list 1 2 3 -2 1 3 -4 -6)))
+
+(: merge : All (a) (a a -> Boolean) (Listof a) (Listof a) -> (Listof a))
+;; The arguments are a less than or equal to function and two ordered lists.
+(define (merge f list1 list2)
+  (match* (list1 list2)
+    [('() '()) '()]
+    [('() (cons hd tl)) list2]
+    [((cons hd tl) '()) list1]
+    [((cons hd1 tl1) (cons hd2 tl2)) (if (f hd1 hd2)
+                                         (cons hd1 (merge f tl1 list2))
+                                         (cons hd2 (merge f list1 tl2)))]))
+(check-expect (merge <= (list 1 3 5 7) (list 2 4 6 8))
+              (list 1 2 3 4 5 6 7 8))
+(check-expect (merge <= (list 1 2 3 4) (list 5 6 7 8))
+              (list 1 2 3 4 5 6 7 8))
+
+(: mergesort : All (a) (a a -> Boolean) (Listof a) -> (Listof a))
+;; The arguments are a less than or equal to function and a list.
+(define (mergesort f list)
+  (match list
+    ['() '()]
+    [(cons hd '()) list]
+    [(cons hd tl)
+     (merge f
+            (mergesort
+             f
+             (TwoLists-list1 (cut list (quotient (length list) 2))))
+            (mergesort
+             f
+             (TwoLists-list2 (cut list (quotient (length list) 2)))))]))
+(check-expect (mergesort <= (list 6 8 7 3 2 4 1 5))
+              (list 1 2 3 4 5 6 7 8))
+
+(: quicksort : All (a) (a a -> Boolean) (Listof a) -> (Listof a))
+;; use split
+;; The arguments are a less than or equal to function and a list.
+(define (quicksort f list)
+  (local
+    {(: g : a -> Boolean)
+     (define (g x)
+       (if (f (first list) x)
+           #f
+           #t))}
+  (match list
+    ['() '()]
+    [(cons pivot tl) (append (quicksort f (TwoLists-list1 (split g tl)))
+                             (cons pivot '())
+                             (quicksort f (TwoLists-list2 (split g tl))))])))
+(check-expect (quicksort <= (list 3 2 15 1 7 71 2 4 5))
+              (list 1 2 2 3 4 5 7 15 71))
+
+(: vector-map! : All (a) (a -> a) (Vectorof a) -> Void)
+;; Given a function and a vector, apply the function to each item in
+;; the vector. To return without a value, use (void).
+(define (vector-map! f v)
+  (local
+    {(define len (vector-length v))
+     (: map! : Integer -> Void)
+     (define (map! i)
+       (if (>= i len)
+           (void)
+           (begin (vector-set! v i (f (vector-ref v i)))
+                  (map! (add1 i)))))}
+    (map! 0)))
+(define v (vector 2 1 3 10 11 12))
+(vector-map! add1 v)
+(check-expect v (vector 3 2 4 11 12 13))
+
+(define k 0)
+(: vector-rotate-right! : All (a) (Vectorof a) -> Void)
+;; Push every item in the vector one position to the right.
+(define (vector-rotate-right! v)
+  (local
+    {(define len (vector-length v))
+     (: rotate-right! : (Vectorof a) Integer a -> Void)
+     (define (rotate-right! v pos x)
+       (local
+         {(define backup (vector-ref v pos))}
+       (if (= pos (sub1 len))
+           (begin
+           (vector-set! v 0 (vector-ref v (sub1 len)))
+           (vector-set! v pos x))
+       (begin
+         (vector-set! v pos x)
+         (rotate-right! v (add1 pos) backup)))))}
+    (rotate-right! v 1 (vector-ref v 0))))
+
+(define w (vector 1 2 3 4 5))
+(vector-rotate-right! w)
+(check-expect w (vector 5 1 2 3 4))
+  
+(: do-times : All (a) Integer (a -> Void) a -> Void)
+;; Given an integer, an action, and an initial value, apply
+;;   the action n times to that value. For example, you could
+;;   use (do-times 3 vector-rotate-right! v) to push all the
+;;   items in the vector three positions to the right.
+(define (do-times x f a)
+  (cond
+    [(zero? x) (void)]
+    [(> x 0) (begin
+               (f a)
+     (do-times (sub1 x) f a))]))
+
+(: vsqr! : (Vectorof Number) -> Void)
+;; square the item at position 0
+(define (vsqr! v)
+  (vector-set! v 0 (sqr (vector-ref v 0))))
+
+(define z (vector 5 4 3 2 1))
+(do-times 3 (inst vector-rotate-right! Integer) z)
+(check-expect z (vector 3 2 1 5 4))
+
+                                                
+
+(test)

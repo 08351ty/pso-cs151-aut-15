@@ -1,0 +1,118 @@
+#lang typed/racket
+(require typed/2htdp/image)
+(require typed/test-engine/racket-tests)
+
+(: bbt (-> Integer Image-Color Image))
+;; bbt means "black-backed triangle"
+;; The resulting image is an nxn square.
+(define (bbt n c)
+  (if (< n 0)
+      (error "negative n")
+      (overlay (triangle (quotient (* 2 n) 3) "solid" c)
+               (square n "solid" "black"))))
+
+(: gbc (-> Integer Image-Color Image))
+;; gbc means "gray-backed circle"
+;; The resulting image is an nxn square.
+(define (gbc n c)
+  (if (< n 0)
+      (error "negative n")
+      (overlay (circle (quotient n 3) "solid" c)
+               (square n "solid" "darkgray"))))
+
+(: design (-> Integer Image))
+;; Draws an asymmetrical design in an nxn square.
+(define (design n)
+  (if (< n 0)
+      (error "negative")
+      (frame (above (beside (gbc (quotient n 2) "black")
+                            (bbt (quotient n 2) "ivory"))
+                    (beside (gbc (quotient n 2) "red")
+                            (gbc (quotient n 2) "darkred"))))))
+
+(: quarter (-> Image Image))
+;;Produces an image which is a quarter the area of the original image
+(define (quarter img)
+  (scale 1/4 img))
+
+(: row (-> Integer Image Image))
+;;Produces a row of n images
+(define (row x img)
+  (cond
+    [(<= x 0) empty-image]
+    [else (beside (row (- x 1) img) img)]))
+
+(: col (-> Integer Image Image))
+;;Produces a column of n images
+(define (col x img)
+  (cond
+    [(<= x 0) img]
+    [else (above (col (- x 1) img) img)]))
+
+(: grid (-> Integer Integer Image Image))
+;;Produces a grid of images. First arg is width, second arg is height
+(define (grid x y img)
+  (col y (row x img)))
+
+(: shrinking-row (-> Image Image))
+;;Produces row of images where each subsequent image is 3/4 size of previous
+(define (shrinking-row img)
+  (cond
+    [(<= (image-height img) 1) empty-image]
+    [else (beside/align "bottom" img (shrinking-row (scale 3/4 img)))]))
+
+(: shrinking-row-scaled (-> Image Image))
+;;Produces row of images where each subsequent image is 3/4 size of previous
+(define (shrinking-row-scaled img)
+  (cond
+    [(<= (image-height img) 1) empty-image]
+    [else (beside/align "bottom" (scale 3/4 img)
+                        (shrinking-row (scale 3/4 (scale 3/4 img))))]))
+
+(: bsr (-> Image Image))
+;;Bidirectional shrinking row
+(define (bsr img)
+  (beside/align "top" (flip-vertical (flip-horizontal (shrinking-row-scaled img)))
+                (shrinking-row img)))
+
+(: shrink-row (-> Image Image))
+;;Constructs a row shrinking by half the size
+(define (shrink-row img)
+  (cond
+    [(<= (image-height img) 1) empty-image]
+    [else (beside (scale 1/2 img)
+                  (above (shrink-row (scale 1/2 img))
+                         (shrink-row (scale 1/2 img))))]))
+
+(: shrink-col (-> Image Image))
+;;Constructs a column shrinking by half the size
+(define (shrink-col img)
+  (cond
+    [(<= (image-height img) 1) empty-image]
+    [else (above (beside (shrink-col (scale 1/2 img))
+                         (shrink-col (scale 1/2 img)))
+                 (scale 1/2 img))]))
+
+(: shrink-grid (-> Image Image))
+;;Creates a grid shrinking by half the size
+(define (shrink-grid img)
+  (cond
+    [(<= (image-height img) 1) empty-image]
+    [else 
+  (above
+   (beside (beside (shrink-col img)
+                   (shrink-col img))
+           (shrink-grid (scale 1/2 img)))
+   (beside img (above (shrink-row img)
+                      (shrink-row img))))]))
+
+(: main (-> Image Image))
+;;Produces figure
+(define (main img)
+  (above (beside (flip-horizontal (shrink-grid img))
+                 (shrink-grid img))
+         (flip-vertical (beside (flip-horizontal (shrink-grid img))
+                                (shrink-grid img)))))
+  
+  
+  

@@ -1,0 +1,96 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require "../include/uchicago151.rkt")
+;;Problem 1
+;;Converts an exact-rational in inches to meters
+(: in->m (-> Exact-Rational Exact-Rational))
+(define (in->m in)
+  (* in 254/10000))
+(check-expect (in->m 1)254/10000)
+
+;;Converts an exact-rational in meters to inches
+(: m->in (-> Exact-Rational Exact-Rational))
+(define (m->in m)
+  (* m 10000/254))
+(check-expect (m->in 1)10000/254)
+
+;;Converts feet and inches to meters
+(: ft-in->m (-> Integer Exact-Rational Exact-Rational))
+(define (ft-in->m ft in)
+  (* (+ (* ft 12) in) 254/10000))
+(check-expect (ft-in->m 6 0) 18288/10000)
+
+;;Calculates the area under the quadratic function from 0 to n
+(: area-under-quad (-> Real Real Real Real Real))
+(define (area-under-quad a b c n)
+  (+ (* (/ a 3) (* n n n))
+     (* (/ b 2) (* n n))
+     (* c n)))
+(check-within (area-under-quad 3 2 1 4) 84 0.00001)
+
+;;Problem 2
+;;Determines if input body temperature is consistent with
+;;having a fever
+(: febrile? (-> Real Boolean))
+(define (febrile? a)
+  (> a 99.5))
+(check-expect (febrile? 99.6) #t)
+
+;;Test whether input would be written as a seven-digit number
+;;in standard decimal notation
+(: seven-digits? (-> Integer Boolean))
+(define (seven-digits? a)
+  (and (>= a 1000000) (< a 10000000)))
+(check-expect (seven-digits? 9999999) #t)
+
+;;Takes the number of X's and O's on a 3x3 tic-tac-toe board
+;;and determines whether the counts are consistent with the
+;;size of the board and the rules of the game
+(: valid-ttt? (-> Integer Integer Boolean))
+(define (valid-ttt? x o)
+  ;;there should be three qualifications:
+  ;;1) x is less than or equal to 5, o is less than or equal to 4
+  ;;2) x is greater than o by 1 or equal to o
+  ;;3) both x and o must be greater than or equal to 0.
+  (and (and (<= x 5) (<= o 4))
+       (or (= (+ o 1) x) (= o x))
+       (or (>= x 0) (>= o 0))))
+(check-expect (valid-ttt? 4 2) #f)
+
+;;Problem 3
+;;Load ventra card with enough money for:
+;;x amount of train trips
+;;y amount of bus trips
+;;z amount of transfers
+(: add-to-ventra (-> Integer Integer Integer Integer))
+(define (add-to-ventra x y z)
+  (* (exact-ceiling (/ (+ (* 2.25 x) (* 2 y) (* 0.25 z)) 5)) 5))
+(check-expect (add-to-ventra 2 3 4) 15)
+
+;;Problem 4
+;;Calculate line of sight
+(: offing-line-of-sight/meters (-> Real Real))
+(define (offing-line-of-sight/meters h)
+  ;;Denote line of sight as s.
+  ;;Using pythagoras' theorem, s^2 + r^2 = (h + r)^2
+  (real-sqrt (+ (* 2 6371000 h) (* h h))))
+(check-within (offing-line-of-sight/meters 2) 5048 1)
+
+;;Calculate ground distance
+(: offing-ground-distance/meters (-> Real Real))
+(define (offing-ground-distance/meters h)
+  (* 6371000 (acos (/ 6371000 (+ 6371000 h)))))
+(check-within (offing-ground-distance/meters 6371000) 6671700 100) 
+
+;;Calculate line of sight in miles
+(: offing-line-of-sight/miles (-> Real Real))
+(define (offing-line-of-sight/miles h)
+  (* (offing-line-of-sight/meters h) 0.000621371))
+(check-within (offing-line-of-sight/miles 2) 3.136682 0.1)
+
+;;Calculate ground distance in miles
+(: offing-ground-distance/miles (-> Real Real))
+(define (offing-ground-distance/miles h)
+  (* (offing-ground-distance/meters h) 0.000621371))
+(check-within (offing-ground-distance/miles 6371000) 4145.602183 10)
+(test)

@@ -1,0 +1,161 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require "../include/uchicago151.rkt")
+
+
+;;Defines a structure for ventra trips
+(define-struct Trips
+  ([x : Integer]
+   [y : Integer]
+   [z : Integer]))
+
+
+;;Determines amount of money to add to ventra card
+(: add-to-ventra (-> Trips Integer))
+(define (add-to-ventra t)
+  (* (exact-ceiling (/ (+ (* 2.25 (Trips-x t)) (* 2 (Trips-y t)) (* 0.25 (Trips-z t))) 5)) 5))
+(check-expect (add-to-ventra (Trips 2 3 4)) 15)
+
+;;Determines whether to purchase a 3 or 1 day pass or top up normally
+(: value-or-pass (-> Trips Trips Trips Exact-Rational))
+(define (value-or-pass a b c)
+  (cond
+    [(and (< 20 (+ (add-to-ventra a) (add-to-ventra b) (add-to-ventra c))) (> 10 (add-to-ventra a))) 20]
+    [(< 10 (add-to-ventra a)) 10]
+    [(= 0 (add-to-ventra a)) 0]
+    [else (+ (add-to-ventra a) (add-to-ventra b) (add-to-ventra c))]))
+(check-within (value-or-pass (Trips 1 1 1) (Trips 5 5 5) (Trips 6 6 6)) 20 0.1)
+
+
+;;Defines a structure for amount of activity done
+(define-struct Activity
+  ([mins-standing : Integer]
+   [cals-burned : Integer]
+   [mins-elev-hr : Integer]))
+
+;;Calculates amount of fat burned
+(: fat-burned (-> Activity Exact-Rational))
+(define (fat-burned f)
+  (/ (Activity-cals-burned f) 3500))
+(check-within (fat-burned (Activity 0 7000 0)) 2 0.1)
+
+;;Calculates amount of calories burned per minute
+(: cals-per-min (-> Activity Exact-Rational))
+(define (cals-per-min c)
+  (/ (Activity-cals-burned c) (Activity-mins-elev-hr c)))
+(check-within (cals-per-min (Activity 0 60 10)) 6 0.1)
+
+;;Adds amount of activity done for two days
+(: add-activities (-> Activity Activity Activity))
+(define (add-activities a b)
+  (Activity (+ (Activity-mins-standing a) (Activity-mins-standing b))
+            (+ (Activity-cals-burned a) (Activity-cals-burned b))
+            (+ (Activity-mins-elev-hr a) (Activity-mins-elev-hr b))))
+(check-expect (add-activities (Activity 1 1 1) (Activity 2 2 2)) (Activity 3 3 3))
+
+;;Determines if input is active
+(: active? (-> Activity Boolean))
+(define (active? a)
+  (if (and (>= (Activity-mins-standing a) 100)
+           (>= (Activity-cals-burned a) 250)
+           (>= (Activity-mins-elev-hr a) 30)) #t #f))
+(check-expect (active? (Activity 100 250 30)) #t)
+
+;;Determines if activity a is as good as activity b
+(: as-good? (-> Activity Activity Boolean))
+(define (as-good? a b)
+  (if (and (<= (Activity-mins-standing a) (Activity-mins-standing b))
+           (<= (Activity-cals-burned a) (Activity-cals-burned b))
+           (<= (Activity-mins-elev-hr a) (Activity-mins-elev-hr b))) #t #f))
+(check-expect (as-good? (Activity 10 10 10) (Activity 10 10 10)) #t)
+
+;;Defines structure representing quadratic co-efficients
+(define-struct Quadratic
+  ([a : Real]
+   [b : Real]
+   [c : Real]))
+
+;;Determines value of integral of quadratic
+(: value-at (-> Quadratic Real Real))
+(define (value-at q x)
+  (+ (* (/ (Quadratic-a q) 3) x x x) (* (/ (Quadratic-b q) 2) x x) (* (Quadratic-c q) x)))
+(check-expect (value-at (Quadratic 3 2 1) 4) 84)
+
+;;Evalutes input quadratics into a string
+(: to-string(-> Quadratic String))
+(define (to-string q)
+  (string-append (number->string (Quadratic-a q)) "x^2+"
+                 (number->string (Quadratic-b q)) "x+"
+                 (number->string (Quadratic-c q))))
+(check-expect (to-string (Quadratic 3 2 1)) "3x^2+2x+1")
+
+;;Scales quadratic by a factor r
+(: scale (-> Quadratic Real Quadratic))
+(define (scale q r)
+  (Quadratic (* (Quadratic-a q) r) (* (Quadratic-b q) r) (* (Quadratic-c q) r)))
+(check-expect (scale (Quadratic 1 1 1) 2) (Quadratic 2 2 2))
+
+;;Determines value of integral of quadratic
+(: integral (-> Quadratic Real Real Real))
+(define (integral q x y)
+  (- (+ (* (/ (Quadratic-a q) 3) x x x)
+        (* (/ (Quadratic-b q) 2) x x)
+        (* (Quadratic-c q) x))
+     (+ (* (/ (Quadratic-a q) 3) y y y)
+        (* (/ (Quadratic-b q) 2) y y)
+        (* (Quadratic-c q) y))))
+(check-expect (integral (Quadratic 3 2 1) 4 1) 81)
+
+;;Calculates discriminant of input quadratic
+(: discriminant (-> Quadratic Real))
+(define (discriminant q)
+  (- (* (Quadratic-b q) (Quadratic-b q)) (* 4 (Quadratic-a q) (Quadratic-c q))))
+(check-expect (discriminant (Quadratic 3 2 1)) -8)
+
+;;Calculates the number of real roots of a quadratic
+(: num-real-roots (-> Quadratic Integer))
+(define (num-real-roots q)
+  (cond
+    [(< 0 (discriminant q)) 2]
+    [(= 0 (discriminant q)) 1]
+    [else 0]))
+(check-expect (num-real-roots (Quadratic 3 9 1)) 2)
+
+;;Determines if input quadratic has real roots
+(: has-real-roots? (-> Quadratic Boolean))
+(define (has-real-roots? q)
+  (if (> (num-real-roots q) 0) #t #f))
+(check-expect (has-real-roots? (Quadratic 3 9 1)) #t)
+
+;;Determines if the two quadratics intersect
+(: intersect? (-> Quadratic Quadratic Boolean))
+(define (intersect? q1 q2)
+  (if (<= 0 (- (* (- (Quadratic-b q1) (Quadratic-b q2))
+        (- (Quadratic-b q1) (Quadratic-b q2)))
+     (* 4 (- (Quadratic-a q1) (Quadratic-a q2)) (- (Quadratic-c q1) (Quadratic-c q2))))) #t #f))
+(check-expect (intersect? (Quadratic 4 -9 11) (Quadratic 0 3 2)) #t)
+
+;;Defines structure of solutions of a quadratic equation
+(define-struct QuadraticSolution
+  ([x1 : Number]
+   [x2 : Number]))
+
+;;Solves quadratic equation to find a quadratic solution
+(: solve (-> Quadratic QuadraticSolution))
+(define (solve q)
+  (QuadraticSolution (/ (+ (- (Quadratic-b q)) (real-sqrt (discriminant q))) (* 2 (Quadratic-a q)))
+                     (/ (- (- (Quadratic-b q)) (real-sqrt (discriminant q))) (* 2 (Quadratic-a q)))))
+(check-expect (solve (Quadratic 1 2 1)) (QuadraticSolution -1 -1))
+
+;;Defines a structure of a linear equation
+(define-struct Linear
+  ([a : Real]
+   [b : Real]))
+
+;;Finds the derivative of a quadratic equation in the form of a Linear structure
+(: derivative (-> Quadratic Linear))
+(define (derivative q)
+  (Linear (* 2 (Quadratic-a q)) (Quadratic-b q)))
+(check-expect (derivative (Quadratic 1 2 1)) (Linear 2 2))
+
+(test)

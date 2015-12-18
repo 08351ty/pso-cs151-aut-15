@@ -1,0 +1,580 @@
+;; CMSC 15100, Autumn 2015, University of Chicago
+;; Project A
+;; prepared by Adam Shaw
+
+;; You are allowed to use this code in subsequent projects. If you choose to
+;; use any part of this in your own work, cite it clearly.
+
+#lang typed/racket
+
+(require typed/test-engine/racket-tests)
+(require typed/2htdp/image)
+(require "../include/uchicago151.rkt")
+(provide (all-defined-out))
+
+;; === data definitions
+
+(define-struct (Some a)
+  ([x : a]))
+
+(define-type (Optional a)
+  (U 'none (Some a)))
+
+(define-type Player 
+  (U 'black 'white))
+
+(define-struct Loc
+  ([row : Integer]   ;; an integer on the interval [0,5]
+   [col : Integer])) ;; an integer on the interval [0,5]
+
+(define-type Quadrant
+  (U 'NW 'NE 'SW 'SE))
+
+(define-type Direction
+  (U 'clockwise 'counterclockwise))
+
+(define-struct Board
+  ([NW : (Listof (Optional Player))] ;; these are all lists of length 9
+   [NE : (Listof (Optional Player))]
+   [SW : (Listof (Optional Player))]
+   [SE : (Listof (Optional Player))]))
+
+(define-struct Game
+  ([board : Board]
+   [next-player : Player]
+   [next-action : (U 'place 'twist)]))
+
+(define-type Outcome
+  (U Player 'tie))
+
+;; === general purpose utilities
+
+(: isNone? : All (a) (Optional a) -> Boolean)
+;; return true iff x is 'none
+(define (isNone? x)
+  (match x
+    ['none #t]
+    [_ #f]))
+
+(: isSome? : All (a) (Optional a) -> Boolean)
+;; return true iff x is (Some _)
+(define (isSome? x)
+  (match x
+    [(Some _) #t]
+    [_ #f]))
+
+(: opt=? : All (a) (a a -> Boolean) -> (Optional a) (Optional a) -> Boolean)
+;; makes an equality tester for (Optional a), given an equality test on a
+(define (opt=? =?)
+  (λ ([opt1 : (Optional a)] [opt2 : (Optional a)])
+    (match* (opt1 opt2)
+      [('none 'none) #t]
+      [((Some x) (Some y)) (=? x y)]
+      [(_ _) #f])))
+
+;; === boards and games
+
+(: initial-board Board)
+;; empty board
+(define initial-board
+  (local {(define e (make-list 9 'none))}
+    (Board e e e e)))
+
+(: new-game : Game)
+;; empty board, white's turn to place a marble
+(define new-game
+  (Game initial-board 'white 'place))
+
+(: quick-quadrant : Symbol -> (Listof (Optional Player)))
+;; makes a quadrant out of a symbol like 'wwb----bb
+;; useful for testing
+(define (quick-quadrant s)
+  (local
+    {(: q : Char -> (Optional Player)) 
+     (define (q c)
+       (match c
+         [(or #\w #\W) (Some 'white)]
+         [(or #\b #\B) (Some 'black)]
+         [_ 'none]))}
+    (map q (string->list (symbol->string s)))))
+
+(check-expect (quick-quadrant 'w--b----b)
+              (list (Some 'white) 'none 'none
+                    (Some 'black) 'none 'none
+                    'none 'none (Some 'black)))
+
+(: quick-board : Symbol Symbol Symbol Symbol -> Board)
+;; makes a board from four symbols
+;; useful for testing
+(define (quick-board nw ne sw se)
+  (Board (quick-quadrant nw)
+         (quick-quadrant ne)
+         (quick-quadrant sw)
+         (quick-quadrant se)))
+
+(check-expect (quick-board '--------- '--------- '--------- '---------)
+              initial-board)
+
+;; === Pentago
+
+(: twist-cw ((Listof (Optional Player)) -> (Listof (Optional Player))))
+;; twist a quadrant 90 degrees clockwise
+(define (twist-cw q)
+  (match q
+    [(list s0 s1 s2
+           s3 s4 s5
+           s6 s7 s8)
+     (list s6 s3 s0
+           s7 s4 s1
+           s8 s5 s2)]
+    [_ (error "(Listof (Optional Player)) does not have nine items")]))
+
+(check-expect (twist-cw (quick-quadrant 'www------))
+              (quick-quadrant '--w--w--w))
+              
+(: twist-ccw ((Listof (Optional Player)) -> (Listof (Optional Player))))
+;; twist a quadrant 90 degrees counterclockwise
+(define (twist-ccw q)
+  (match q
+    [(list s0 s1 s2
+           s3 s4 s5
+           s6 s7 s8)
+     (list s2 s5 s8
+           s1 s4 s7
+           s0 s3 s6)]
+    [_ (error "Quadrant does not have nine items")]))
+
+(check-expect (twist-ccw (quick-quadrant 'www------))
+              (quick-quadrant 'w--w--w--))
+
+(: replace-none ((Listof (Optional Player)) Integer Player -> (Listof (Optional Player))))
+;; put a piece at position i in the quadrant iff that position is empty
+;; throw an error if something is already there
+(define (replace-none q i c)
+  (local
+    {(: lp : (Listof (Optional Player)) Integer -> (Listof (Optional Player)))
+     (define (lp q i)
+       (match* (q i)
+         [((cons 'none tl) 0) (cons (Some c) tl)]
+         [((cons (Some _) _) 0) (error "There's already a marble there.")]
+         [((cons hd tl) i) (cons hd (lp tl (sub1 i)))]
+         [('() _) (error "empty")]))}
+    (lp q i)))
+
+(check-expect (replace-none (quick-quadrant '-wwbbbwww) 0 'black)
+              (quick-quadrant 'bwwbbbwww))
+
+(: board-ref : Board Loc -> (Optional Player))
+;; return the optional marble at the given location on the board
+;; some arithmetic is needed to determine the quadrant and the
+;;   position in the quadrant
+(define (board-ref b l)
+  (match* (b l)
+    [((Board NW NE SW SE) (Loc r c))
+     (if (and (<= 0 r 5) (<= 0 c 5))
+         (local
+           {(define q
+              (cond
+                [(<= 0 r 2) (if (<= 0 c 2) NW NE)]
+                [else (if (<= 0 c 2) SW SE)]))}
+           (list-ref q (+ (* 3 (remainder r 3)) (remainder c 3))))
+         (error (string-append "location out of bounds: row "
+                               (number->string r) " col "
+                               (number->string c))))]))
+
+(check-expect (board-ref (quick-board 'w--------'b--------
+                                      'w--------'b--------)
+                         (Loc 0 0))
+              (Some 'white))
+
+(check-expect (board-ref (quick-board 'w--------'b--------
+                                      'w--------'b--------)
+                         (Loc 0 1))
+              'none)
+
+(check-expect (board-ref (quick-board 'w--------'b--------
+                                      'w--------'b--------)
+                         (Loc 0 3))
+              (Some 'black))
+
+(check-expect (board-ref (quick-board 'w--------'b--------
+                                      'w--------'b--------)
+                         (Loc 3 0))
+              (Some 'white))
+
+(check-expect (board-ref (quick-board 'w--------'b--------
+                                      'w--------'b--------)
+                         (Loc 3 3))
+              (Some 'black))
+
+(: place-piece (Board Quadrant Integer Player -> Board))
+;; put the piece at the given position iff it's empty
+;; throws an error, via replace-none, if the place is not open
+(define (place-piece bd qid i c)
+  (: pquad ((Listof (Optional Player)) -> (Listof (Optional Player))))
+  (define (pquad q)
+    (replace-none q i c))
+  (match bd
+    [(Board NW NE SW SE)
+     (match qid
+       ['NW (Board (pquad NW) NE SW SE)]
+       ['NE (Board NW (pquad NE) SW SE)]
+       ['SW (Board NW NE (pquad SW) SE)]
+       ['SE (Board NW NE SW (pquad SE))])]))
+
+(check-expect (place-piece initial-board 'NW 0 'white)
+              (quick-board 'w-------- '--------- '--------- '---------))
+
+(: other : Player -> Player)
+;; toggle player
+(define (other p)
+  (match p ['black 'white] [_ 'black]))
+
+(: place-marble : Game Player Loc -> Game)
+;; place marble iff it's the player's turn and the next action is 'place
+(define (place-marble g p l)
+  (match g
+    [(Game _ _ 'twist) (error "Twist is next.")]
+    [(Game b q 'place)
+     (if (and (<= 0 (Loc-row l) 5) (<= 0 (Loc-col l) 5))
+         (if (symbol=? p q)
+             (Game (place-piece b (quad-of l) (index-of l) p) p 'twist)
+             (error "It's the other player's turn."))
+         (error "Off the board."))]))
+
+(check-expect (place-marble new-game 'white (Loc 0 0))
+              (Game (quick-board 'w-------- '--------- '--------- '---------)
+                    'white
+                    'twist))
+                                 
+(check-error (place-marble new-game 'black (Loc 0 0))
+             "It's the other player's turn.")
+             
+(: quad-of : Loc -> Quadrant)
+;; determine which quadrant the location is in
+(define (quad-of loc)
+  (match loc
+    [(Loc r c)
+     (if (<= 0 r 2)
+         (if (<= 0 c 2) 'NW 'NE)
+         (if (<= 0 c 2) 'SW 'SE))]))
+
+(check-expect (quad-of (Loc 1 1)) 'NW)
+(check-expect (quad-of (Loc 0 5)) 'NE)
+(check-expect (quad-of (Loc 5 0)) 'SW)
+(check-expect (quad-of (Loc 4 4)) 'SE)
+              
+(: index-of : Loc -> Integer)
+;; compute the list position of given location within its quadrant
+(define (index-of loc)
+  (match loc
+    [(Loc r c)
+     (+ (* 3 (remainder r 3)) (remainder c 3))]))
+
+(check-expect (index-of (Loc 1 0)) 3)
+(check-expect (index-of (Loc 2 3)) 6)
+(check-expect (index-of (Loc 2 5)) 8)
+(check-expect (index-of (Loc 4 1)) 4)
+(check-expect (index-of (Loc 5 5)) 8)
+
+(: twist-board : Board Quadrant Direction -> Board)
+;; twist a quadrant of the board in the given direction
+(define (twist-board b q d)
+  (match b
+    [(Board NW NE SW SE)
+     (local
+       {(define twist
+          (match d
+            ['clockwise twist-cw]
+            [_ twist-ccw]))}
+       (match q
+         ['NW (Board (twist NW) NE SW SE)]
+         ['NE (Board NW (twist NE) SW SE)]
+         ['SW (Board NW NE (twist SW) SE)]
+         ['SE (Board NW NE SW (twist SE))]))]))
+
+(check-expect
+ (twist-board (quick-board 'w-------- '--------- '--------- '---------)
+              'NW
+              'clockwise)
+ (quick-board '--w------ '--------- '--------- '---------))
+
+(check-expect
+ (twist-board (quick-board 'w-------- '--------- '--------- '---------)
+              'NW
+              'counterclockwise)
+ (quick-board '------w-- '--------- '--------- '---------))
+
+(: twist-quadrant : Game Quadrant Direction -> Game)
+;; twist-quadrant and advance to new game state
+(define (twist-quadrant g q d)
+  (match g
+    [(Game b pl 'twist)
+     (Game (twist-board b q d) (other pl) 'place)]
+    [_ (error "It's not time to twist.")]))
+
+(check-expect
+ (twist-quadrant (Game (quick-board 'w-------- '--------- '--------- '---------)
+                       'white
+                       'twist)
+                 'NW
+                 'clockwise)
+ (Game (quick-board '--w------ '--------- '--------- '---------)
+       'black
+       'place))
+
+;; === test game end and victory conditions
+
+(: full? : Board -> Boolean)
+;; return true iff the board has no empty spaces on it
+(define (full? b)
+  (match b
+    [(Board NW NE SW SE)
+     (andmap (inst isSome? Player) (append NW NE SW SE))]))
+
+(check-expect (full? initial-board) #f)
+
+(check-expect (full? (quick-board 'wwwwwwwww 'wwwwwwwww 'bbbbbbbbb 'bbbbbbbbb))
+              #t)
+
+(: eastward-row-starting-points : (Listof Loc))
+;; these are the 12 spaces from which an eastward row can start
+(define eastward-row-starting-points
+  (build-list 12 (λ ([i : Integer]) (Loc (quotient i 2) (remainder i 2)))))
+
+(: southward-col-starting-points : (Listof Loc))
+;; these are the 12 spaces from which a southward column can start
+(define southward-col-starting-points
+  (build-list 12 (λ ([i : Integer]) (Loc (remainder i 2) (quotient i 2)))))
+
+(: southeast-diag-starting-points : (Listof Loc))
+;; these are the 4 spaces from which a southeast diagonal can start
+(define southeast-diag-starting-points
+  (list (Loc 0 0) (Loc 0 1) (Loc 1 1) (Loc 1 0)))
+
+(: southwest-diag-starting-points : (Listof Loc))
+;; these are the 4 spaces from which a southwest diagonal can start
+(define southwest-diag-starting-points
+  (list (Loc 0 4) (Loc 0 5) (Loc 1 4) (Loc 1 5)))
+
+(: make-mover : (Integer -> Integer) (Integer -> Integer) -> (Loc -> Loc))
+;; make a Loc -> Loc function out of a row modifier and a col modifier
+(define (make-mover do-to-row do-to-col)
+  (λ ([loc : Loc])
+    (match loc
+      [(Loc r c) (Loc (do-to-row r) (do-to-col c))])))
+
+(check-expect ((make-mover identity identity) (Loc 0 0)) (Loc 0 0))
+(check-expect ((make-mover add1 identity) (Loc 0 0)) (Loc 1 0))
+(check-expect ((make-mover identity add1) (Loc 0 0)) (Loc 0 1))
+(check-expect ((make-mover add1 add1) (Loc 0 0)) (Loc 1 1))
+
+(: follow-five : Board Player Loc (Loc -> Loc) -> Boolean)
+;; given the board, a player, a starting location and
+;; a way to move from location to location, see if there
+;; are five adjacent locations containing that player
+(define (follow-five b p start next)
+  (local
+    {(: lp : Loc Integer -> Boolean)
+     ;; given location and number of squares remaining to check,
+     ;; return true if all squares contain player p
+     (define (lp current-loc locs-remaining)
+       (if (zero? locs-remaining)
+           #t
+           (and ((opt=? symbol=?) (Some p) (board-ref b current-loc))
+                (lp (next current-loc) (sub1 locs-remaining)))))}
+    (lp start 5)))
+
+(check-expect
+ (follow-five (quick-board 'www------ 'ww------- '--------- '---------)
+              'white
+              (Loc 0 0)
+              (make-mover identity add1))
+ #t)
+
+(check-expect
+ (follow-five (quick-board 'w--w--w-- '--------- 'w--w----- '---------)
+              'white
+              (Loc 0 0)
+              (make-mover identity add1))
+ #f)
+
+(check-expect
+ (follow-five (quick-board 'w--w--w-- '--------- 'w--w----- '---------)
+              'white
+              (Loc 0 0)
+              (make-mover add1 identity))
+ #t)
+
+(check-expect
+ (follow-five (quick-board 'w---w---w '--------- '--------- 'w---w----)
+              'white
+              (Loc 0 0)
+              (make-mover add1 add1))
+ #t)
+
+(: row? : Board Player -> Boolean)
+;; does the given player have five in a row anywhere on the board?
+(define (row? b p)
+  (ormap (λ ([start : Loc]) (follow-five b p start (make-mover identity add1)))
+         eastward-row-starting-points))
+
+(check-expect
+ (row? (quick-board 'www------ 'ww------- '--------- '---------) 'white)
+ #t)
+
+(check-expect
+ (row? (quick-board 'www------ 'ww------- '--------- '---------) 'black)
+ #f)
+
+(check-expect
+ (row? (quick-board 'wwwww---- '--------- '------bbb '------bb-) 'black)
+ #t)
+
+(: col? : Board Player -> Boolean)
+;; does the given player have five in a column anywhere on the board?
+(define (col? b p)
+  (ormap (λ ([start : Loc]) (follow-five b p start (make-mover add1 identity)))
+         southward-col-starting-points))
+
+(check-expect
+ (col? (quick-board 'www------ 'ww------- '--------- '---------) 'white)
+ #f)
+
+(check-expect
+ (col? (quick-board 'w--w--w-- '--------- 'w--w----- '---------) 'white)
+ #t)
+
+(: diag? : Board Player -> Boolean)
+;; does the given player have five in a diagonal anywhere on the board?
+(define (diag? b p)
+  (or
+   (ormap (λ ([start : Loc]) (follow-five b p start (make-mover add1 add1)))
+          southeast-diag-starting-points)
+   (ormap (λ ([start : Loc]) (follow-five b p start (make-mover add1 sub1)))
+          southwest-diag-starting-points)))
+
+(check-expect
+ (diag? (quick-board 'w---w---w '--------- '--------- 'w---w----) 'white)
+ #t)
+
+(check-expect
+ (diag? (quick-board 'w---w---w '--b-b-b-- '--b-b---- 'w---w----) 'black)
+ #t)
+   
+(: has-five? : Game Player -> Boolean)
+;; did the player get five in a row?
+(define (has-five? g p)
+  (match g
+    [(Game b _ _)
+     (or (row? b p) (col? b p) (diag? b p))]))
+
+(check-expect (has-five? new-game 'white) #f)
+(check-expect (has-five? new-game 'black) #f)
+(check-expect
+ (has-five? (Game
+             (quick-board 'w---w---w '--b-b-b-- '--b-b---- 'w---w----)
+             'white
+             'twist)
+            'white)
+ #t)
+(check-expect
+ (has-five? (Game
+             (quick-board 'w---w---w '--b-b-b-- '--b-b---- 'w---w----)
+             'white
+             'twist)
+            'black)
+ #t)
+
+(: game-over? : Game -> Boolean)
+;; is the game over?
+(define (game-over? g)
+  (or (has-five? g 'white)
+      (has-five? g 'black)
+      (full? (Game-board g))))
+
+(: outcome : Game -> Outcome)
+(define (outcome g)
+  (match* ((has-five? g 'white) (has-five? g 'black))
+    [(#t #t) 'tie]
+    [(#t _) 'white]
+    [(_ #t) 'black]
+    [(_ _) 'tie]))
+
+;; === visualization
+
+(: square-image : (Optional Player) -> Image)
+(define (square-image p)
+  (frame
+   (match p
+     ['none (square 30 'solid 'gainsboro)]
+     [(Some p) (overlay (circle 10 'solid p) (square 30 'solid 'gainsboro))])))
+
+(: quadrant-image : (Listof (Optional Player)) -> Image)
+(define (quadrant-image q)
+  (match (map square-image q)
+    [(list a b c d e f g h i)
+     (above (beside a b c)
+            (beside d e f)
+            (beside g h i))]))
+
+(: sbr : Integer Integer -> Image)
+;; sbr = "solid black rectangle"
+(define (sbr width height)
+  (rectangle (max 0 width) (max 0 height) 'solid 'black))
+
+(: scale-to-width : Image Integer -> Image)
+;; scale image to desired width
+(define (scale-to-width img w)
+  (if (<= w 0)
+      (error "Width must be positive.")
+      (local
+        {(define scalar
+           (/ w (image-width img)))}
+        (if (<= scalar 0)
+            (error "bug") ;; this is just to "outwit" the typechecker
+            (scale scalar img)))))
+
+(: board-image : Board Integer -> Image)
+(define (board-image b desired-width)
+  (match b
+    [(Board NW NE SW SE)
+     (match (map quadrant-image (list NW NE SW SE))
+       [(list i1 i2 i3 i4)
+        (local
+          {(define δ 4)
+           (define vspace (sbr δ (image-height i1)))
+           (define hspace (sbr (+ δ (* 2 (image-width i1))) δ))
+           (define result
+             (above (beside i1 vspace i2)
+                    hspace
+                    (beside i3 vspace i4)))}
+          (scale-to-width result desired-width))])]))
+
+;;change to byte for text
+(: int->byte : Integer -> Positive-Byte)
+(define (int->byte n)
+  (cond
+    [(<= n 1) 1]
+    [(>= n 255) 255]
+    [else n]))
+(check-expect (int->byte 256) 255)
+(check-expect (int->byte 0) 1)
+
+(: game-image : Game Integer -> Image)
+(define (game-image g desired-width)
+  (match g
+    [(Game b pl act) (if (> desired-width 0) (above (board-image (Game-board g) desired-width)
+                            (overlay (above (text (string-append (symbol->string pl) "'s turn") (int->byte (quotient desired-width 20)) "black")
+                         (rectangle desired-width (quotient desired-width 35) "solid" "gainsboro")
+                         (text (symbol->string act) (int->byte (quotient desired-width 20)) "black")
+                         (rectangle desired-width (quotient desired-width 70) "solid" "gainsboro")
+                         (text "click on square to place ; click on quadrant to select quadrant to twist" (int->byte (quotient desired-width 50)) "black")
+                         (rectangle desired-width (quotient desired-width 70) "solid" "gainsboro")
+                         (text "left arrow key to turn selected quadranted counterclockwise" (int->byte (quotient desired-width 50)) "black")
+                         (rectangle desired-width (quotient desired-width 70) "solid" "gainsboro")
+                         (text "right arrow key to turn selected quadrant clockwise" (int->byte (quotient desired-width 50)) "black"))
+                  (overlay (rectangle desired-width (quotient desired-width 4) "outline" "black") (rectangle desired-width (quotient desired-width 4) "solid" "gainsboro"))))
+                         empty-image)]))
+
+(test)

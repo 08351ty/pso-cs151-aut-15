@@ -1,0 +1,95 @@
+#lang typed/racket
+(require "../include/uchicago151.rkt")
+(require typed/test-engine/racket-tests)
+(require typed/2htdp/image)
+(require typed/2htdp/universe)
+
+;;creates structure world that takes in x and y co-ordinates for mouse position
+;;and a list of integers defining the radii of the circles
+(define-struct World
+  ([x : Integer]
+   [y : Integer]
+   [circles : (Listof Integer)]))
+
+;;Draws an image of concentric circles from the list of radii in world
+(: draw-circles : (Listof Integer) -> Image)
+(define (draw-circles list)
+  (cond
+    [(and (cons? list) (> (first list) 0)) (overlay (circle (first list) "outline" "black") (draw-circles (rest list)))]
+    [else empty-image]))
+
+;;Draws background and circles
+(: draw : World -> Image)
+(define (draw w)
+  (overlay/xy (beside/align "bottom" (draw-circles (World-circles w))
+                             (text (string-append (number->string (World-x w))
+                                                  ","
+                                                  (number->string (World-y w)))
+                             12 "black"))
+              (+ (- (World-x w)) (apply max (World-circles w)))
+              (+ (- (World-y w)) (apply max (World-circles w)))
+              (rectangle 800 400 "solid" "ivory")))
+
+;; Grader: The coordinates make it a little off center at the beginning
+
+;;Listens for mouse clicks, creates a circle of radius 2 when left click
+(: handle-mouse : World Integer Integer Mouse-Event -> World)
+(define (handle-mouse w x y e)
+  (match e
+    ["button-down" (World (World-x w)
+                          (World-y w)
+                          (append (World-circles w) (list 2)))]
+    [_ (match w
+         [(World a b c) (World x y c)])]))
+(check-expect (handle-mouse (World 100 100 (list 3)) 100 100 "button-down") (World 100 100 (list 3 2)))
+(check-expect (handle-mouse (World 100 100 (list 3)) 100 100 "button-up") (World 100 100 (list 3)))
+
+;;Increases radius of all circles by one
+(: increase-radius : (Listof Integer) -> (Listof Integer))
+(define (increase-radius list)
+  (cond
+    [(cons? list) (cons (+ (first list) 1) (increase-radius (rest list)))]
+    [else empty]))
+(check-expect (increase-radius (list 3 4 16)) (list 4 5 17))
+(check-expect (increase-radius (list 2)) (list 3))
+
+;;Decreases radius of all circles by one
+(: decrease-radius : (Listof Integer) -> (Listof Integer))
+(define (decrease-radius list)
+  (cond
+    [(cons? list) (cons (if (= (first list) 1) 1 (- (first list) 1)) (decrease-radius (rest list)))]
+    [else empty]))
+(check-expect (decrease-radius (list 5 6 7)) (list 4 5 6))
+(check-expect (decrease-radius (list 3 1 1)) (list 2 1 1))
+
+;;Listens for + and -, which initiates increase-radius and decrease-radius
+(: keypress : World String -> World)
+(define (keypress w k)
+  (match k
+    ["+"
+     (match w
+       [(World a b l) (World a b (increase-radius l))])]
+    ["-"
+     (match w
+         [(World a b l) (World a b (decrease-radius l))])]
+    [_ w]))
+(check-expect (keypress (World 100 100 (list 3 6)) "+") (World 100 100 (list 4 7)))
+(check-expect (keypress (World 100 100 (list 3 6)) "-") (World 100 100 (list 2 5)))
+(check-expect (keypress (World 100 100 (list 3 6)) "enter") (World 100 100 (list 3 6)))
+
+;;Stops world when all circles have radius 1
+(: radius-one : World -> Boolean)
+(define (radius-one w)
+  (cond
+    [(= (apply max (World-circles w)) 1) #t]
+    [else #f]))
+(check-expect (radius-one (World 100 100 (list 3 1))) #f)
+(check-expect (radius-one (World 100 100 (list 1 1 1 1 1 1 1 1 1))) #t)
+(test)
+
+;;Creates world
+(big-bang (World 0 0 (list 2)) : World
+  [to-draw draw]
+  [on-mouse handle-mouse]
+  [on-key keypress]
+  [stop-when radius-one])

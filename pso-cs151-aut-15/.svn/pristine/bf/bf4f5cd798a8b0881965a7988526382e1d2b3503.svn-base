@@ -1,0 +1,86 @@
+#lang typed/racket
+(require "../include/uchicago151.rkt")
+(require typed/test-engine/racket-tests)
+(require typed/2htdp/image)
+(require typed/2htdp/universe)
+
+;;Defines structure world that consists of counter, current letter in alphabet
+;;and number of characters left
+(define-struct World
+   ([counter : Integer]
+   [letter : String]
+   [charleft : Integer]))
+
+;;draws background, timer, current letter and number of characters left
+(: draw : World -> Image)
+(define (draw w)
+  (overlay (above (text (if (string=? (World-letter w) "")
+                            "Type A To Start"
+                            (World-letter w))
+                        24 "black")
+                  (rectangle 400 20 "solid" "ivory")
+                  (text (string-append "Characters Left: " (number->string (World-charleft w))) 16 "black")
+                  (rectangle 400 20 "solid" "ivory")
+                  (text (string-append "Time: " (format-time (World-counter w))) 12 "black"))
+           (rectangle 400 200 "solid" "ivory")))
+
+;;Creates timer
+(: handle-tick : World -> World)
+(define (handle-tick w)
+  (match w
+    [(World a b c) (World (add1 a) (World-letter w) (World-charleft w))]))
+(check-expect (handle-tick (World 0 "" 52)) (World 1 "" 52))
+(check-expect (handle-tick (World 50 "" 52)) (World 51 "" 52))
+
+;;Formats time (17 -> 1.7)
+(: format-time : Integer -> String)
+(define (format-time t)
+  (string-append (number->string (quotient t 10))
+                 "."
+                 (number->string (remainder t 10))))
+(check-expect (format-time 123) "12.3")
+(check-expect (format-time 12) "1.2")
+
+;;Creates list of alphabets with upper and lower case
+(define alphabet (list "A" "B" "C" "D" "E" "F" "G" "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z"
+                       "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z"))
+
+;;Gets nth element of alphabet
+(: get-nth-element : (Listof String) Integer -> String)
+(define (get-nth-element list x)
+  (cond
+    [(and (cons? list) (> x 0)) (get-nth-element (rest list) (- x 1))]
+    [(and (cons? list) (= x 0)) (first list)]
+    [else ""]))
+(check-expect (get-nth-element alphabet 3) "D")
+(check-expect (get-nth-element alphabet 0) "A")
+(check-expect (get-nth-element alphabet 53) "")
+
+;;Determines if the key pressed is the correct letter of alphabet
+;;If not, start again
+(define y 0)
+(: keypress : World String -> World)
+(define (keypress w k)
+    (cond
+      [(string=? k (get-nth-element alphabet y)) (set! y (add1 y))
+                                                 (World (World-counter w) k (- (World-charleft w) 1))]
+      [else (set! y 0) (World 0 "" 52)]))
+(check-expect (keypress (World 0 "B" 50) "B") (World 0 "" 52))
+
+;;Checks whether the user has finished typing the alphabet
+;;Stops if he/she has
+(: z-pressed : World -> Boolean)
+(define (z-pressed w)
+  (cond
+    [(string=? (World-letter w) "z") #t]
+    [else #f]))
+(check-expect (z-pressed (World 20 "z" 0)) #t)
+(check-expect (z-pressed (World 20 "B" 50)) #f)
+(test)
+
+;;Creates world
+(big-bang (World 0 "" 52) : World
+  [to-draw draw]
+  [on-tick handle-tick 1/10]
+  [on-key keypress]
+  [stop-when z-pressed])

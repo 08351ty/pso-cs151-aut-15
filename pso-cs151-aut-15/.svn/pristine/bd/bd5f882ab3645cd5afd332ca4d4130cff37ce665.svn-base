@@ -1,0 +1,766 @@
+#lang typed/racket
+(require typed/test-engine/racket-tests)
+(require "../include/uchicago151.rkt")
+(require typed/2htdp/image)
+(require typed/2htdp/universe)
+
+(define-type (Optional a)
+  (U 'none (Some a)))
+
+(define-struct (Some a)
+  ([x : a]))
+
+(define-type Player 
+  (U 'black 'white))
+
+(define-struct Loc
+  ([row : Integer]   ;; an integer on the interval [0,5]
+   [col : Integer])) ;; an integer on the interval [0,5]
+
+(define-type Quadrant
+  (U 'NW 'NE 'SW 'SE))
+
+(define-type Direction
+  (U 'clockwise 'counterclockwise))
+
+(define-struct Board
+  ([NW : (Listof (Optional Player))] ;; these are all lists of length 9
+   [NE : (Listof (Optional Player))]
+   [SW : (Listof (Optional Player))]
+   [SE : (Listof (Optional Player))]))
+
+(define-struct Game
+  ([board : Board]
+   [next-player : Player]
+   [next-action : (U 'place 'twist)]))
+
+(define-type Outcome
+  (U Player 'tie))
+
+(: new-game : Game)
+(define new-game (Game (Board (list 'none 'none 'none 'none 'none 'none 'none 'none 'none) 
+                              (list 'none 'none 'none 'none 'none 'none 'none 'none 'none)
+                              (list 'none 'none 'none 'none 'none 'none 'none 'none 'none)
+                              (list 'none 'none 'none 'none 'none 'none 'none 'none 'none))
+                       'white
+                       'place))
+
+;;Returns int representing nth element of list
+(: index-list : Loc -> Integer)
+(define (index-list l)
+  (cond
+    [(and (= (modulo (Loc-row l) 3) 0) (= (modulo (Loc-col l) 3) 0)) 1]
+    [(and (= (modulo (Loc-row l) 3) 0) (= (modulo (Loc-col l) 3) 1)) 2]
+    [(and (= (modulo (Loc-row l) 3) 0) (= (modulo (Loc-col l) 3) 2)) 3]
+    [(and (= (modulo (Loc-row l) 3) 1) (= (modulo (Loc-col l) 3) 0)) 4]
+    [(and (= (modulo (Loc-row l) 3) 1) (= (modulo (Loc-col l) 3) 1)) 5]
+    [(and (= (modulo (Loc-row l) 3) 1) (= (modulo (Loc-col l) 3) 2)) 6]
+    [(and (= (modulo (Loc-row l) 3) 2) (= (modulo (Loc-col l) 3) 0)) 7]
+    [(and (= (modulo (Loc-row l) 3) 2) (= (modulo (Loc-col l) 3) 1)) 8]
+    [(and (= (modulo (Loc-row l) 3) 2) (= (modulo (Loc-col l) 3) 2)) 9]
+    [else 0]))
+(check-expect (index-list (Loc 3 2)) 3)
+(check-expect (index-list (Loc 5 5)) 9)
+(check-expect (index-list (Loc 0 0)) 1)
+
+;;finds the nth element in the list
+;;could have used list-ref as well
+(: list-number : Loc (Listof (Optional Player)) -> (Optional Player))
+(define (list-number l list)
+  (cond
+    [(= (index-list l) 1) (first list)]
+    [(= (index-list l) 2) (second list)]
+    [(= (index-list l) 3) (third list)]
+    [(= (index-list l) 4) (fourth list)]
+    [(= (index-list l) 5) (fifth list)]
+    [(= (index-list l) 6) (sixth list)]
+    [(= (index-list l) 7) (seventh list)]
+    [(= (index-list l) 8) (eighth list)]
+    [(= (index-list l) 9) (ninth list)]
+    [else 'none]))
+(check-expect (list-number (Loc 3 2) (list 'none (Some 'black) (Some 'white)
+                                           'none 'none 'none
+                                           (Some 'black) (Some 'white) (Some 'black))) (Some 'white))
+
+;;Determines the quadrant based on the location specified
+(: determine-board : Board Loc -> Quadrant)
+(define (determine-board b l)
+  (cond
+    [(and (< (Loc-row l) 3) (< (Loc-col l) 3)) 'NW]
+    [(and (< (Loc-row l) 3) (>= (Loc-col l) 3)) 'NE]
+    [(and (>= (Loc-row l) 3) (< (Loc-col l) 3)) 'SW]
+    [(and (>= (Loc-row l) 3) (>= (Loc-col l) 3)) 'SE]
+    [else (error "no board")]))
+(check-expect (determine-board (Board (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black)))
+                               (Loc 5 5)) 'SE)
+(check-expect (determine-board (Board (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black)))
+                               (Loc 1 1)) 'NW)
+(check-expect (determine-board (Board (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black)))
+                               (Loc 5 2)) 'SW)
+(check-expect (determine-board (Board (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black))
+                                      (list 'none (Some 'black) (Some 'white)
+                                            'none 'none 'none
+                                            (Some 'black) (Some 'white) (Some 'black)))
+                               (Loc 2 5)) 'NE)
+
+;;get the list of players based on selected board and quadrant
+(: get-list : Board Quadrant -> (Listof (Optional Player)))
+(define (get-list b q)
+  (match q
+    ['NW (Board-NW b)]
+    ['NE (Board-NE b)]
+    ['SW (Board-SW b)]
+    ['SE (Board-SE b)]))
+(check-expect (get-list (Board (list (Some 'black) (Some 'black) (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black))
+                               (list 'none 'none 'none
+                                     'none 'none 'none
+                                     'none 'none 'none)
+                               (list (Some 'white) (Some 'black) (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black))
+                               (list 'none 'none (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black)))
+                        'NW) (list (Some 'black) (Some 'black) (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black)))
+
+;;Finds the player on the specific location
+(: board-ref : Board Loc -> (Optional Player))
+(define (board-ref b l)
+  (list-number l (get-list b (determine-board b l))))
+(check-expect (board-ref (Board (list (Some 'black) (Some 'black) (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black))
+                               (list 'none 'none 'none
+                                     'none 'none 'none
+                                     'none 'none 'none)
+                               (list (Some 'white) (Some 'black) (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black))
+                               (list 'none 'none (Some 'white)
+                                     'none 'none 'none
+                                     (Some 'black) (Some 'white) (Some 'black)))
+                         (Loc 5 5)) (Some 'black)) 
+
+;;changes player into optional player
+(: optional-player? : Player -> (Optional Player))
+(define (optional-player? p)
+  (match p
+    ['black (Some 'black)]
+    ['white (Some 'white)]
+    [else (error "invalid player")]))
+(check-expect (optional-player? 'black) (Some 'black))
+(check-expect (optional-player? 'white) (Some 'white))
+
+;;changes list based on player and location
+(: change-list : (Listof (Optional Player)) Loc Player Integer -> (Listof (Optional Player)))
+(define (change-list list l p x)
+  (match list
+    [(cons hd tl) (cons (cond
+                          [(= (index-list l) x) (optional-player? p)]
+                          [else hd]) (change-list tl l p (+ x 1)))]
+    [_ '()]))
+(check-expect (change-list (list 'none 'none 'none
+                                 'none 'none 'none
+                                 'none 'none 'none)
+                           (Loc 2 2)
+                           'black
+                           1)
+              (list 'none 'none 'none
+                    'none 'none 'none
+                    'none 'none (Some 'black)))
+(check-expect (change-list (list 'none 'none 'none
+                                 'none 'none 'none
+                                 'none 'none 'none)
+                           (Loc 1 0)
+                           'black
+                           1)
+              (list 'none 'none 'none
+                    (Some 'black) 'none 'none
+                    'none 'none 'none))
+
+;;changes player white-> black, black-> white
+(: change-player : Player -> Player)
+(define (change-player p)
+  (match p
+    ['white 'black]
+    ['black 'white]))
+(check-expect (change-player 'white) 'black)
+(check-expect (change-player 'black) 'white)
+
+;;using this to check functions
+(define sample-board
+  (Board (list 'none (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) 'none
+               'none 'none 'none)
+         (list 'none (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) (Some 'white)
+               'none 'none 'none)
+         (list 'none 'none 'none
+               (Some 'white) (Some 'white) 'none
+               'none 'none 'none)
+         (list (Some 'black) (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) (Some 'black)
+               (Some 'black) 'none 'none)))
+
+;;using this to check functions
+(define sample-board1
+  (Board (list (Some 'black) (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) (Some 'white)
+               (Some 'white) (Some 'white) (Some 'white))
+         (list (Some 'white) (Some 'white) (Some 'black)
+               (Some 'white) (Some 'white) (Some 'white)
+               (Some 'black) 'none 'none)
+         (list 'none 'none 'none
+               (Some 'white) (Some 'white) 'none
+               (Some 'black) 'none 'none)
+         (list (Some 'black) (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) (Some 'black)
+               (Some 'black) 'none 'none)))
+
+;;using this to check functions
+(define sample-game
+  (Game sample-board 'white 'place))
+
+;;using this to check functions
+(define sample-game1
+  (Game sample-board1 'white 'place))
+
+;;changes board based on location
+(: change-board : Game Board Loc -> Board)
+(define (change-board g b l)
+  (match (determine-board b l)
+    ['NW (Board (change-list (get-list b (determine-board b l))
+                             l
+                             (Game-next-player g) 1) (Board-NE b)
+                                                   (Board-SW b) (Board-SE b))]
+    ['NE (Board (Board-NW b) (change-list (get-list b (determine-board b l))
+                                          l
+                                          (Game-next-player g) 1)
+                (Board-SW b) (Board-SE b))]
+    ['SW  (Board (Board-NW b) (Board-NE b)
+                 (change-list (get-list b (determine-board b l))
+                              l
+                              (Game-next-player g) 1)(Board-SE b))]
+    ['SE (Board (Board-NW b) (Board-NE b)
+                (Board-SW b) (change-list (get-list b (determine-board b l))
+                                          l
+                                          (Game-next-player g) 1))]
+    [_ (error "invalid board")]))
+(check-expect (change-board sample-game sample-board (Loc 2 2))
+              (Board (list 'none (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) 'none
+                           'none 'none (Some 'white))
+                     (list 'none (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) (Some 'white)
+                           'none 'none 'none)
+                     (list 'none 'none 'none
+                           (Some 'white) (Some 'white) 'none
+                           'none 'none 'none)
+                     (list (Some 'black) (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) (Some 'black)
+                           (Some 'black) 'none 'none)))
+         
+;;places marble onto game based on player and selected location
+(: place-marble : Game Player Loc -> Game)
+(define (place-marble g p l)
+  (Game (change-board g (Game-board g) l) p 'twist))
+(check-expect (place-marble sample-game 'white (Loc 5 5))
+              (Game (Board (list 'none (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) 'none
+                           'none 'none 'none)
+                     (list 'none (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) (Some 'white)
+                           'none 'none 'none)
+                     (list 'none 'none 'none
+                           (Some 'white) (Some 'white) 'none
+                           'none 'none 'none)
+                     (list (Some 'black) (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) (Some 'black)
+                           (Some 'black) 'none (Some 'white)))
+                    'white
+                    'twist))
+
+;;rotates board right/clockwise
+(: rotate-right : (Listof (Optional Player)) -> (Listof (Optional Player)))
+(define (rotate-right l)
+  (cond
+    [(cons? l) (list (seventh l) (fourth l) (first l)
+                     (eighth l) (fifth l) (second l)
+                     (ninth l) (sixth l) (third l))]
+    [else '()]))
+(check-expect (rotate-right (list (Some 'black) 'none 'none
+                                  (Some 'white) 'none 'none
+                                  (Some 'black) 'none 'none))
+              (list (Some 'black) (Some 'white) (Some 'black)
+                    'none 'none 'none
+                    'none 'none 'none))
+                
+;;rotates board left/counterclockwise 
+(: rotate-left : (Listof (Optional Player)) -> (Listof (Optional Player)))
+(define (rotate-left l)
+  (cond
+    [(cons? l) (list (list-ref l 2) (list-ref l 5) (list-ref l 8)
+                     (list-ref l 1) (list-ref l 4) (list-ref l 7)
+                     (list-ref l 0) (list-ref l 3) (list-ref l 6))]
+    [else '()]))
+(check-expect (rotate-left
+              (list (Some 'black) (Some 'white) (Some 'black)
+                    'none 'none 'none
+                    'none 'none 'none))
+              (list (Some 'black) 'none 'none
+                    (Some 'white) 'none 'none
+                    (Some 'black) 'none 'none))
+
+;;rotates board according to quadrant selected and direction
+(: rotate-board : Board Quadrant Direction -> Board)
+(define (rotate-board b q d)
+  (match q
+    ['NW (match d
+           ['clockwise (match b
+                         [(Board nw ne sw se) (Board (rotate-right nw) ne sw se)])]
+           ['counterclockwise (match b
+                                [(Board nw ne sw se) (Board (rotate-left nw) ne sw se)])])]
+    ['NE (match d
+           ['clockwise (match b
+                         [(Board nw ne sw se) (Board nw (rotate-right ne) sw se)])]
+           ['counterclockwise (match b
+                                [(Board nw ne sw se) (Board nw (rotate-left ne) sw se)])])]
+    ['SW (match d
+           ['clockwise (match b
+                         [(Board nw ne sw se) (Board nw ne (rotate-right sw) se)])]
+           ['counterclockwise (match b
+                                [(Board nw ne sw se) (Board nw ne (rotate-left sw) se)])])]
+    ['SE (match d
+           ['clockwise (match b
+                         [(Board nw ne sw se) (Board nw ne sw (rotate-right se))])]
+           ['counterclockwise (match b
+                                [(Board nw ne sw se) (Board nw ne sw (rotate-left se))])])]))
+(check-expect (rotate-board sample-board 'NW 'clockwise)
+              (Board (list 'none (Some 'white) 'none
+                           'none (Some 'white) (Some 'black)
+                           'none 'none (Some 'black))
+                     (list 'none (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) (Some 'white)
+                           'none 'none 'none)
+                     (list 'none 'none 'none
+                           (Some 'white) (Some 'white) 'none
+                           'none 'none 'none)
+                     (list (Some 'black) (Some 'black) (Some 'black)
+                           (Some 'white) (Some 'white) (Some 'black)
+                           (Some 'black) 'none 'none)))
+              
+
+;;twists the quadrant and returns a new game
+(: twist-quadrant : Game Quadrant Direction -> Game)
+(define (twist-quadrant g q d)
+  (match g
+    [(Game b p a) (Game (rotate-board b q d) (change-player p) 'place)]
+    [_ (error "invalid input")]))
+(check-expect (twist-quadrant (Game sample-board 'white 'twist) 'SE 'clockwise)
+              (Game (Board (list 'none (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) 'none
+               'none 'none 'none)
+         (list 'none (Some 'black) (Some 'black)
+               (Some 'white) (Some 'white) (Some 'white)
+               'none 'none 'none)
+         (list 'none 'none 'none
+               (Some 'white) (Some 'white) 'none
+               'none 'none 'none)
+         (list (Some 'black) (Some 'white) (Some 'black)
+               'none (Some 'white) (Some 'black)
+               'none (Some 'black) (Some 'black))) 'black 'place))
+
+;;compares five optional players, if all equal, then return true
+(: compare-symbol : (Optional Player) (Optional Player) (Optional Player) (Optional Player) (Optional Player) -> Boolean)
+(define (compare-symbol a b c d e)
+  (match a
+    ['none #f]
+    [else (cond
+            [(and (equal? a b) (equal? a c) (equal? a d) (equal? a e)) #t]
+            [else #f])]))
+(check-expect (compare-symbol (Some 'white) (Some 'white) (Some 'white) (Some 'white) (Some 'white)) #t)
+(check-expect (compare-symbol 'none 'none 'none 'none 'none) #f)
+(check-expect (compare-symbol (Some 'white) (Some 'white) (Some 'white) 'none (Some 'white)) #f)
+
+;;Returns true if 5 in a row are from same player vertically
+(: vertical-win? : Board -> Boolean)
+(define (vertical-win? b)
+  (if (or (match-vert (Board-NW b) (Board-SW b))
+          (match-vert (Board-NE b) (Board-SE b)))
+      #t
+      #f))
+(check-expect (vertical-win? sample-board) #f)
+(check-expect (vertical-win? (Board (list 'none 'none 'none
+                                          'none 'none 'none
+                                          'none 'none 'none)
+                                    (list 'none 'none 'none
+                                          'none 'none 'none
+                                          'none 'none 'none)
+                                    (list 'none 'none 'none
+                                          (Some 'white) (Some 'white) 'none
+                                          'none 'none 'none)
+                                    (list (Some 'black) (Some 'black) (Some 'black)
+                                          (Some 'white) (Some 'white) (Some 'black)
+                                          (Some 'black) 'none 'none))) #f)
+
+;;matches all possible vertical wins using compare-symbol
+(: match-vert : (Listof (Optional Player)) (Listof (Optional Player)) -> Boolean)
+(define (match-vert list1 list2)
+  (cond
+    [(boolean=? (compare-symbol (list-ref list1 0) (list-ref list1 3) (list-ref list1 6)
+                                (list-ref list2 0) (list-ref list2 3)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 1) (list-ref list1 4) (list-ref list1 7)
+                                (list-ref list2 1) (list-ref list2 4)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 2) (list-ref list1 5) (list-ref list1 8)
+                                (list-ref list2 2) (list-ref list2 5)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 3) (list-ref list1 6)
+                                (list-ref list2 0) (list-ref list2 3) (list-ref list2 6)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 4) (list-ref list1 7)
+                                (list-ref list2 1) (list-ref list2 4) (list-ref list2 7)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 5) (list-ref list1 8)
+                                (list-ref list2 2) (list-ref list2 5) (list-ref list2 8)) #t) #t]
+    [else #f]))
+(check-expect (match-vert (list 'none 'none 'none
+                                'none 'none 'none
+                                'none 'none 'none)
+                          (list 'none 'none 'none
+                                'none 'none 'none
+                                'none 'none 'none)) #f)
+(check-expect (match-vert (list (Some 'black) 'none 'none
+                                (Some 'black) 'none 'none
+                                (Some 'black) 'none 'none)
+                          (list (Some 'black) 'none 'none
+                                (Some 'black) 'none 'none
+                                (Some 'white) 'none 'none)) #t)
+
+
+;;Returns true if 5 in a row are from same player horizontally
+(: horizontal-win? : Board -> Boolean)
+(define (horizontal-win? b)
+  (if (or (match-hori (Board-NW b) (Board-NE b))
+          (match-hori (Board-SW b) (Board-SE b)))
+      #t
+      #f))
+(check-expect (horizontal-win? sample-board) #f)
+(check-expect (horizontal-win? (Board (list 'none 'none 'none
+                                          'none 'none 'none
+                                          'none 'none 'none)
+                                    (list 'none 'none 'none
+                                          'none 'none 'none
+                                          'none 'none 'none)
+                                    (list 'none 'none 'none
+                                          (Some 'white) (Some 'white) 'none
+                                          'none 'none 'none)
+                                    (list (Some 'black) (Some 'black) (Some 'black)
+                                          (Some 'white) (Some 'white) (Some 'black)
+                                          (Some 'black) 'none 'none))) #f)
+
+;;says true if 5 horizontal in a row
+(: match-hori : (Listof (Optional Player)) (Listof (Optional Player)) -> Boolean)
+(define (match-hori list1 list2)
+  (cond
+    [(compare-symbol (list-ref list1 0) (list-ref list1 1) (list-ref list1 2)
+                     (list-ref list2 0) (list-ref list2 1)) #t]
+    [(compare-symbol (list-ref list1 3) (list-ref list1 4) (list-ref list1 5)
+                     (list-ref list2 3) (list-ref list2 4)) #t]
+    [(compare-symbol (list-ref list1 6) (list-ref list1 7) (list-ref list1 8)
+                     (list-ref list2 6) (list-ref list2 7)) #t]
+    [(compare-symbol (list-ref list1 1) (list-ref list1 2)
+                     (list-ref list2 0) (list-ref list2 1) (list-ref list2 2)) #t]
+    [(compare-symbol (list-ref list1 4) (list-ref list1 5)
+                     (list-ref list2 3) (list-ref list2 4) (list-ref list2 5)) #t]
+    [(compare-symbol (list-ref list1 7) (list-ref list1 8)
+                     (list-ref list2 6) (list-ref list2 7) (list-ref list2 8)) #t]
+    [else #f]))
+(check-expect (match-hori (list 'none 'none 'none
+                                'none 'none 'none
+                                'none 'none 'none)
+                          (list 'none 'none 'none
+                                'none 'none 'none
+                                'none 'none 'none)) #f)
+(check-expect (match-hori (list (Some 'black) (Some 'black) (Some 'black)
+                                (Some 'black) 'none 'none
+                                (Some 'black) 'none 'none)
+                          (list (Some 'black) (Some 'black) 'none
+                                (Some 'black) 'none 'none
+                                (Some 'white) 'none 'none)) #t)
+
+;;determines if there's a win diagonally
+(: diagonal-win? : Board -> Boolean)
+(define (diagonal-win? b)
+  (if (or (match-diam1 (Board-NW b) (Board-SE b) (Board-SW b) (Board-NE b))
+          (match-diam2 (Board-NE b) (Board-SW b) (Board-SE b) (Board-NW b)))
+      #t
+      #f))
+(check-expect (diagonal-win? sample-board) #f)
+(check-expect (diagonal-win? (Board (list 'none 'none 'none
+                                          'none 'none 'none
+                                          'none 'none 'none)
+                                    (list 'none 'none 'none
+                                          'none 'none 'none
+                                          'none 'none 'none)
+                                    (list 'none 'none 'none
+                                          (Some 'white) (Some 'white) 'none
+                                          'none 'none 'none)
+                                    (list (Some 'black) (Some 'black) (Some 'black)
+                                          (Some 'white) (Some 'white) (Some 'black)
+                                          (Some 'black) 'none 'none))) #f)
+
+;;matches 5 elements diagonally
+(: match-diam1 : (Listof (Optional Player)) (Listof (Optional Player)) (Listof (Optional Player)) (Listof (Optional Player)) -> Boolean)
+(define (match-diam1 list1 list2 suplist1 suplist2)
+  (cond
+    [(boolean=? (compare-symbol (list-ref list1 0) (list-ref list1 4) (list-ref list1 8)
+                     (list-ref list2 0) (list-ref list2 4)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 4) (list-ref list1 8)
+                     (list-ref list2 0) (list-ref list2 4) (list-ref list2 8)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 3) (list-ref list1 7)
+                     (list-ref suplist1 2)
+                     (list-ref list2 3) (list-ref list2 7)) #t) #t]
+    [(boolean=? (compare-symbol (list-ref list1 1) (list-ref list1 5)
+                     (list-ref suplist2 6)
+                     (list-ref list2 1) (list-ref list2 5)) #t) #t]
+    [else #f]))
+(check-expect (match-diam1 (list 'none 'none 'none
+                                 'none 'none 'none
+                                 'none 'none 'none)
+                           (list 'none 'none 'none
+                                 'none 'none 'none
+                                 'none 'none 'none)
+                           (list (Some 'black) (Some 'black) (Some 'black)
+                                 (Some 'black) 'none 'none
+                                 (Some 'black) 'none 'none)
+                           (list (Some 'black) (Some 'black) 'none
+                                 (Some 'black) 'none 'none
+                                 (Some 'white) 'none 'none)) #f)
+(check-expect (match-diam1 (list (Some 'black) (Some 'black) (Some 'black)
+                                 (Some 'black) 'none 'none
+                                 (Some 'black) 'none 'none)
+                           (list (Some 'black) (Some 'black) 'none
+                                 (Some 'black) 'none 'none
+                                 (Some 'white) 'none 'none)
+                           (list (Some 'black) (Some 'black) (Some 'black)
+                                 (Some 'black) 'none 'none
+                                 (Some 'black) 'none 'none)
+                           (list (Some 'black) (Some 'black) 'none
+                                 (Some 'black) 'none 'none
+                                 (Some 'white) 'none 'none)) #f)
+
+;;other side of match diagonal
+(: match-diam2 : (Listof (Optional Player)) (Listof (Optional Player)) (Listof (Optional Player)) (Listof (Optional Player)) -> Boolean)
+(define (match-diam2 list1 list2 suplist1 suplist2)
+  (cond
+    [(compare-symbol (list-ref list1 2) (list-ref list1 4) (list-ref list1 6)
+          (list-ref list2 2) (list-ref list2 4)) #t]
+    [(compare-symbol (list-ref list1 4) (list-ref list1 6)
+                     (list-ref list2 2) (list-ref list2 4) (list-ref list2 6)) #t]
+    [(compare-symbol (list-ref list1 5) (list-ref list1 7)
+                     (list-ref suplist1 0)
+          (list-ref list2 5) (list-ref list2 7)) #t]
+    [(compare-symbol (list-ref list1 1) (list-ref list1 3)
+                     (list-ref suplist2 8)
+                     (list-ref list2 1) (list-ref list2 3)) #t]
+    [else #f]))
+(check-expect (match-diam1 (list 'none 'none 'none
+                                 'none 'none 'none
+                                 'none 'none 'none)
+                           (list 'none 'none 'none
+                                 'none 'none 'none
+                                 'none 'none 'none)
+                           (list (Some 'black) (Some 'black) (Some 'black)
+                                 (Some 'black) 'none 'none
+                                 (Some 'black) 'none 'none)
+                           (list (Some 'black) (Some 'black) 'none
+                                 (Some 'black) 'none 'none
+                                 (Some 'white) 'none 'none)) #f)
+(check-expect (match-diam1 (list (Some 'black) (Some 'black) (Some 'black)
+                                 (Some 'black) 'none 'none
+                                 (Some 'black) 'none 'none)
+                           (list (Some 'black) (Some 'black) 'none
+                                 (Some 'black) 'none 'none
+                                 (Some 'white) 'none 'none)
+                           (list (Some 'black) (Some 'black) (Some 'black)
+                                 (Some 'black) 'none 'none
+                                 (Some 'black) 'none 'none)
+                           (list (Some 'black) (Some 'black) 'none
+                                 (Some 'black) 'none 'none
+                                 (Some 'white) 'none 'none)) #f)
+
+;;determines if the game is over
+(: game-over? : Game -> Boolean)
+(define (game-over? g)
+  (if (or (vertical-win? (Game-board g)) (horizontal-win? (Game-board g)) (diagonal-win? (Game-board g)))
+      #t
+      #f))
+(check-expect (game-over? sample-game) #f)
+
+;;determines if the quadrant is all occupied
+(: full-quadrant? : (Listof (Optional Player)) -> Boolean)
+(define (full-quadrant? list)
+  (cond
+    [(cons? list) (match (first list)
+                    ['none #f]
+                    [else (full-quadrant? (rest list))])]
+    ['() #t]))
+(check-expect (full-quadrant? (list 'none 'none 'none
+                                    (Some 'white) (Some 'white) (Some 'white)
+                                    (Some 'white) (Some 'white) (Some 'white))) #f)
+(check-expect (full-quadrant? (list (Some 'white) (Some 'white) (Some 'white)
+                                    (Some 'white) (Some 'white) (Some 'white)
+                                    (Some 'white) (Some 'white) (Some 'white))) #t)          
+
+;;determines if the board is all occupied
+(: full-board? : Game -> Boolean)
+(define (full-board? g)
+  (if (and (full-quadrant? (Board-NW (Game-board g))) (full-quadrant? (Board-NE (Game-board g)))
+           (full-quadrant? (Board-SW (Game-board g))) (full-quadrant? (Board-SE (Game-board g))))
+      #t
+      #f))
+(check-expect (full-board? sample-game) #f)
+
+;;displays outcome
+(: outcome : Game -> Outcome)
+(define (outcome g)
+  (cond
+    [(game-over? g) (Game-next-player g)]
+    [(full-board? g) 'tie]
+    [else (error "game has not finished")]))
+(check-expect (outcome sample-game1) 'white)
+
+;;Creates each individual marble
+(: determine-color : (Optional Player) Integer -> Image)
+(define (determine-color p x)
+  (cond
+    [(> x 0) (match p
+               ['none (circle x "outline" "black")]
+               [(Some 'white) (overlay (circle x "outline" "black") (circle x "solid" "white"))]
+               [(Some 'black) (circle x "solid" "black")])]
+    [else (error "invalid integer")]))
+
+;;Draws the circle and spacing and background
+(: draw-circles : (Listof (Optional Player)) Integer -> Image)
+(define (draw-circles list x)
+  (cond
+    [(> x 0) (above (beside (determine-color (first list) (quotient x 8))
+                            (rectangle (quotient x 16) 1 "solid" "gainsboro")
+                            (determine-color (second list) (quotient x 8))
+                            (rectangle (quotient x 16) 1 "solid" "gainsboro")
+                            (determine-color (third list) (quotient x 8)))
+                    (rectangle 1 (quotient x 16) "solid" "gainsboro")
+                    (beside (determine-color (fourth list) (quotient x 8))
+                            (rectangle (quotient x 16) 1 "solid" "gainsboro")
+                            (determine-color (fifth list) (quotient x 8))
+                            (rectangle (quotient x 16) 1 "solid" "gainsboro")
+                            (determine-color (sixth list) (quotient x 8)))
+                    (rectangle 1 (quotient x 16) "solid" "gainsboro")
+                    (beside (determine-color (seventh list) (quotient x 8))
+                            (rectangle (quotient x 16) 1 "solid" "gainsboro")
+                            (determine-color (eighth list) (quotient x 8))
+                            (rectangle (quotient x 16) 1 "solid" "gainsboro")
+                            (determine-color (ninth list) (quotient x 8))))]
+    [else (error "invalid integer")]))
+
+;;Draws a quadrant
+(: quadrant-image : (Listof (Optional Player)) Integer -> Image)
+(define (quadrant-image list x)
+  (cond
+    [(> x 0) (overlay (overlay (draw-circles list x)
+                               (square x "outline" "black"))
+                      (square x "solid" "gainsboro"))]
+    [else (error "invalid image")]))
+
+;;Draws a board
+(: board-image : Board Integer -> Image)
+(define (board-image b x)
+  (cond
+   [(> x 0) (beside (above (quadrant-image (Board-NW b) (quotient x 2))
+                           (quadrant-image (Board-SW b) (quotient x 2)))
+                    (above (quadrant-image (Board-NE b) (quotient x 2))
+                           (quadrant-image (Board-SE b) (quotient x 2))))]
+   [else (error "invalid image")]))
+
+;;to strings a player
+(: next-player : Player -> String)
+(define (next-player p)
+  (match p
+    ['white "White"]
+    ['black "Black"]))
+(check-expect (next-player 'white) "White")
+
+;;to strings an action
+(: next-action : Game -> String)
+(define (next-action g)
+  (cond
+    [(symbol=? (Game-next-action g) 'place) "Place"]
+    [(symbol=? (Game-next-action g) 'twist) "Twist"]
+    [else (error "invalid action")]))
+(check-expect (next-action sample-game) "Place")
+
+;;change to byte for text
+(: int->byte : Integer -> Positive-Byte)
+(define (int->byte n)
+  (cond
+    [(<= n 1) 1]
+    [(>= n 255) 255]
+    [else n]))
+(check-expect (int->byte 256) 255)
+(check-expect (int->byte 0) 1)
+
+;;draws entire game
+(: game-image : Game Integer -> Image)
+(define (game-image g x)
+  (cond
+    [(> x 0) (above (board-image (Game-board g) x)
+         (overlay (above (text (string-append (next-player (Game-next-player g)) "'s Turn") (int->byte (quotient x 20)) "black")
+                         (rectangle x (quotient x 24) "solid" "gainsboro")
+                         (text (next-action g) (int->byte (quotient x 20)) "black"))
+                  (overlay (rectangle x (quotient x 4) "outline" "black") (rectangle x (quotient x 4) "solid" "gainsboro"))))]
+    [else (error "invalid integer")]))
+
+(test)
+    
